@@ -32,7 +32,6 @@
 5. 一键更新：从 GitHub 仓库自动下载新版本（更新前自动备份，可回滚）
 6. 支持几乎所有 OpenAI 协议的 API / 异步协议 / Gemini 协议 / 方钩协议
 7. 支持 ModelScope 免费 LLM 与图像模型调用
-8. 支持即梦 CLI、GPT CLI、Antigravity CLI 调用
 
 ## 快速开始
 
@@ -61,7 +60,7 @@ python3 main.py
 
 > macOS 首次运行如遇权限提示，请先执行 `mac-修复权限.command`。
 
-首次使用请进入「API 设置」配置可用的 API 平台与 Key；画布仅保留 OpenAI 协议、ModelScope、火山引擎、即梦等图像/对话能力，原 ComfyUI / RunningHub / MiniMax / LTX Director / 视频生成节点已移除。
+首次使用请进入「API 设置」配置可用的 API 平台与 Key，保存后即可在画布上调用 OpenAI 协议、ModelScope、火山引擎、即梦等平台的图像与对话能力。
 
 ## 配套工具
 

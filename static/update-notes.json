@@ -1,10 +1,10 @@
 {
-  "version": "2026.10.25.4",
-  "updated_at": "2026-10-25T10:35:00+08:00",
+  "version": "2026.10.25.5",
+  "updated_at": "2026-10-25T18:05:00+08:00",
   "items": [
     {
       "type": "change",
-      "text": "推荐 API 面板调整：移除 RunningHub 与 APIMART 两个推荐平台（协议功能不受影响，已配置的平台可继续使用）；「灵境API」更换为「Fast AI」。"
+      "text": "推荐 API 面板更新：当前推荐「Fast AI」与「FHL」，可直接获取 Key 与配置文档，已配置的平台继续可用。"
     },
     {
       "type": "change",
