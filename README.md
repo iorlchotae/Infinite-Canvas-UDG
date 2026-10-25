@@ -10,12 +10,18 @@
 
 无限画布（UDG 版）是一款本地运行的 AI 创作画布工具，以 Python + FastAPI 为后端、原生前端为界面，支持调用各类 OpenAI 协议 API、ModelScope 免费模型等，把生成、编辑、整理、沉淀整合到一张无限画布上。
 
-相比原版，UDG 版聚焦画布核心体验：
+## 画布预览
 
-- **去掉本地功能板块**：移除原「本地功能」（文生图 / 细节增强 / 图片编辑 / 角度控制）入口，画布能力不受影响
-- **去掉 GPT 对话板块**：移除独立 GPT 对话页面，AI 能力统一收敛到画布节点
-- **全新品牌**：界面署名更新为「联创四院 / UDG」
-- **独立仓库**：项目主页与在线更新均指向 UDG 独立仓库
+一张无限画布，把「生成 → 编辑 → 整理 → 沉淀」串成一条流：节点自由摆放、连线组合，文生图 / 图生图 / 局部重绘 / 扩展出图 / 九宫格多视角都在画布上完成，生成结果随手沉淀进素材库。
+
+> 界面截图取自开源项目 [Infinite-Canvas](https://github.com/hero8152/Infinite-Canvas)（原作者 wuli大雄），仅作界面示意；UDG 版界面署名为「联创四院 / UDG」。
+
+<p align="center">
+  <img width="860" alt="无限画布总览" src="https://github.com/user-attachments/assets/8469923b-f7a2-403c-9c37-e6e789211f28" />
+</p>
+<p align="center">
+  <img width="720" alt="画布节点创作" src="https://github.com/user-attachments/assets/f4030201-67c6-4845-b08b-b6fdf304afaa" />
+</p>
 
 ## 功能特性
 
@@ -68,18 +74,14 @@ python3 main.py
 
 **特别致谢**：感谢原创作者 **wuli大雄** 开发并开源了 Infinite-Canvas，为本项目提供了全部基础代码。原项目已申请著作权，其开源约定（二次开发须保持开源并注明来源作者、禁止擅自商用封装）对上游代码继续适用，本项目同样保持开源并注明来源。
 
-UDG 版的改动包括：移除本地功能与 GPT 对话板块、界面署名替换为联创四院（UDG）、更新源切换至本仓库等。
+UDG 版在此基础上聚焦画布体验，界面署名为「联创四院 / UDG」，项目主页与在线更新均指向本仓库。
 
-### 上游项目（参考来源）
+### 上游项目
 
-本 README 的**功能描述与截图说明均参考上游原项目**撰写，仅作来源标注与能力对照；UDG 版已按上文「功能特性 / 快速开始」实际裁剪，请以本仓库内容为准。
+基于 [Infinite-Canvas](https://github.com/hero8152/Infinite-Canvas)（原作者 **wuli大雄**）二次开发；上游已于 2026/08/28 停更，与本项目无隶属关系。
 
-- 原项目仓库：<https://github.com/hero8152/Infinite-Canvas>
-- 原作者：**wuli大雄**（B 站主页：<https://space.bilibili.com/78652351>）
-- 配套 Chrome 采集插件：<https://chromewebstore.google.com/detail/infinite-canvas-%E5%9B%BE%E5%83%8F%E8%A7%86%E9%A2%91%E6%96%87%E5%AD%97%E6%8A%93%E5%8F%96%E5%B7%A5/ajfhnbklbmpfaaookhfakohabnpmlcic>
-- 视频教程：<https://youtu.be/1y9ShTvgC_w>
-
-> 注意：上游项目已于 **2026/08/28** 宣布停更，全新版本请前往 <http://www.DX-OS.com> 下载，与本项目（联创四院 UDG 版）无隶属关系。
+- 作者主页：[B 站](https://space.bilibili.com/78652351) · 新版：[DX-OS](http://www.DX-OS.com)
+- 视频教程：[YouTube](https://youtu.be/1y9ShTvgC_w) · Chrome 采集插件：[安装](https://chromewebstore.google.com/detail/infinite-canvas-%E5%9B%BE%E5%83%8F%E8%A7%86%E9%A2%91%E6%96%87%E5%AD%97%E6%8A%93%E5%8F%96%E5%B7%A5/ajfhnbklbmpfaaookhfakohabnpmlcic)
 
 ## 目录结构
 
