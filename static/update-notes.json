@@ -1,18 +1,18 @@
 {
-  "version": "2026.10.25.5",
-  "updated_at": "2026-10-25T18:05:00+08:00",
+  "version": "2026.10.25.6",
+  "updated_at": "2026-10-25T18:30:00+08:00",
   "items": [
     {
-      "type": "change",
-      "text": "推荐 API 面板更新：当前推荐「Fast AI」与「FHL」，可直接获取 Key 与配置文档，已配置的平台继续可用。"
+      "type": "feature",
+      "text": "API 设置左侧平台列表：Fast AI、FHL、Agnes AI 显示官方品牌标识，其余平台保持通用图标。"
     },
     {
       "type": "change",
-      "text": "FHL 注册链接已更新为最新邀请链接。"
+      "text": "推荐 API 依次为「Fast AI」「FHL」「Agnes AI」，可直接获取 Key 与配置文档，已配置的平台继续可用。"
     },
     {
       "type": "feature",
-      "text": "Fast AI 推荐卡片新增「配置文档」入口，可直达接入指南。"
+      "text": "左下角版本号可点击，手动检查并升级到最新版本。"
     }
   ]
 }

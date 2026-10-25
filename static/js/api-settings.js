@@ -657,11 +657,12 @@ async function saveRecommendedApi(index){
     if(ok) setStatus(trf('api.recommendSaved', {name:api.name}));
 }
 // 品牌 LOGO：左侧平台列表用品牌标识替代通用钥匙图标
-// 图片放在 static/images/brands/<key>.png（找不到会自动尝试同名 .svg），缺失时回退为首字母字标
+// 图片放在 static/images/brands/ 下；加载失败时回退为首字母字标
+// fit:'cover' 用于方形 App 图标（铺满圆角方块），fit:'contain' 用于横版字标（白底内留白）
 const BRAND_LOGOS = {
-    fastai:{ key:'fastai', name:'Fast AI', initials:'FA' },
-    fhl:{ key:'fhl', name:'FHL', initials:'FHL' },
-    'agnes-ai':{ key:'agnes-ai', name:'Agnes AI', initials:'AG' }
+    fastai:{ key:'fastai', name:'Fast AI', initials:'FA', src:'/static/images/brands/fastai.png', fit:'cover' },
+    fhl:{ key:'fhl', name:'FHL', initials:'FHL', src:'/static/images/brands/fhl.png', fit:'cover' },
+    'agnes-ai':{ key:'agnes-ai', name:'Agnes AI', initials:'AG', src:'/static/images/brands/agnes-ai.svg', fit:'contain', wide:true }
 };
 function brandLogoFor(item){
     if(!item) return null;
@@ -676,10 +677,10 @@ function brandLogoFor(item){
 }
 function brandLogoError(img){
     if(!img) return;
-    const svg = img.dataset.brandFallback;
-    if(svg && !img.dataset.triedSvg){
-        img.dataset.triedSvg = '1';
-        img.src = svg;
+    const alt = img.dataset.brandFallback;
+    if(alt && !img.dataset.triedFallback){
+        img.dataset.triedFallback = '1';
+        img.src = alt;
         return;
     }
     img.classList.add('is-missing');
@@ -737,8 +738,8 @@ function renderProviderList(){
         }
         const brand = brandLogoFor(item);
         const brandMark = brand ? `
-                <span class="provider-mark provider-mark-brand">
-                    <img src="/static/images/brands/${brand.key}.png" data-brand-fallback="/static/images/brands/${brand.key}.svg" alt="${escapeAttr(brand.name)}" onerror="brandLogoError(this)">
+                <span class="provider-mark provider-mark-brand fit-${brand.fit === 'cover' ? 'cover' : 'contain'}${brand.wide ? ' is-wide' : ''}">
+                    <img src="${brand.src}" alt="${escapeAttr(brand.name)}" onerror="brandLogoError(this)">
                     <span class="provider-brand-initials">${escapeHtml(brand.initials)}</span>
                 </span>` : `
                 <span class="provider-mark"><i data-lucide="${item.has_key ? 'key-round' : 'key'}" class="w-4 h-4"></i></span>`;
