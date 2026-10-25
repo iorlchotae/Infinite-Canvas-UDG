@@ -734,7 +734,9 @@
         .sidebar:hover .update-version-full { display:inline; }
         .sidebar:hover .update-action-prefix { display:inline; }
         .sidebar:hover .update-now-text { max-width:130px; transition-delay:.15s; }
-        .update-now-btn.show + .project-version-badge { display:none; }
+        /* 有更新时版本号保持可见且可点击，点击直接升级（不再隐藏） */
+        .project-version-badge.has-update { color:#16a34a; border-color:rgba(34,197,94,.55); background:rgba(34,197,94,.12); }
+        .project-version-badge.has-update:hover { color:#fff; background:#16a34a; border-color:#16a34a; }
         html.theme-dark .update-now-btn,
         body.theme-dark .update-now-btn {
             border-color:rgba(134,239,172,.42);
@@ -1517,7 +1519,7 @@
                     </svg>
                     <span id="update-now-text" class="update-now-text" data-i18n="update.oneClick">一键更新</span>
                 </button>
-                <div id="project-version-badge" class="project-version-badge" title="点击检测更新" role="button" tabindex="0" onclick="checkForUpdates(true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();checkForUpdates(true);}">v-</div>
+                <div id="project-version-badge" class="project-version-badge" title="点击检测并升级" role="button" tabindex="0" onclick="manualVersionUpgrade()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();manualVersionUpgrade();}">v-</div>
             </div>
 
             <div class="author-box">
@@ -2044,6 +2046,7 @@
             gitBtn.dataset.localVersion = localVersion || '';
             gitBtn.dataset.remoteVersion = remoteVersion || '';
             document.getElementById('update-now-btn')?.classList.add('show');
+            document.getElementById('project-version-badge')?.classList.add('has-update');
             updateProjectUpdateTitle();
         }
 
@@ -2492,6 +2495,7 @@
                 );
                 document.getElementById('github-entry-btn')?.classList.remove('update-available');
                 btn?.classList.remove('show');
+                document.getElementById('project-version-badge')?.classList.remove('has-update');
                 setProjectVersionBadge(data.version || document.getElementById('github-entry-btn')?.dataset.remoteVersion || appInfo.version);
                 if(restarting) waitForBackendAndReload();
             } catch(e) {
@@ -2604,6 +2608,7 @@
                     }
                 }
                 const hasUpdate = !!(current && best?.version && compareVersions(best.version, current) > 0);
+                if(!hasUpdate) document.getElementById('project-version-badge')?.classList.remove('has-update');
                 if(hasUpdate) {
                     setProjectUpdateNotes(best.update_notes || null);
                     showUpdateNotice(current, best.version);
@@ -2624,6 +2629,38 @@
                 if(badge) badge.classList.remove('checking');
             }
         }
+
+        /* 手动点击版本号：检测更新，若有新版本则直接开始升级（下载文件 + 自动重启） */
+        async function manualVersionUpgrade() {
+            const isEn = window.StudioI18n?.lang?.() === 'en';
+            if(projectUpdateRunning) return;
+            const badge = document.getElementById('project-version-badge');
+            if(badge) badge.classList.add('checking');
+            try {
+                const d = await fetch('/api/check-update', { cache:'no-store' })
+                    .then(r => r.ok ? r.json() : null).catch(() => null);
+                if(!d) { await checkForUpdates(true); return; }
+                const current = String(d.current || appInfo.version || '').trim();
+                if(current) { appInfo = {...appInfo, version: current}; setProjectVersionBadge(current); }
+                const latest = String(d.latest?.version || '').trim();
+                const hasUpdate = !!(current && latest && compareVersions(latest, current) > 0);
+                if(hasUpdate) {
+                    setProjectUpdateNotes(d.latest?.update_notes || d.update_notes || null);
+                    // 打开更新面板以显示进度，并直接开始升级
+                    openProjectUpdateModal();
+                    await confirmProjectUpdate();
+                } else if(d.reachable) {
+                    alert(isEn ? `You are on the latest version (v${current}).` : `已是最新版本（v${current}）。`);
+                } else {
+                    await checkForUpdates(true);
+                }
+            } catch(e) {
+                try { await checkForUpdates(true); } catch(_) {}
+            } finally {
+                if(badge) badge.classList.remove('checking');
+            }
+        }
+        window.manualVersionUpgrade = manualVersionUpgrade;
     </script>
 </body>
 
