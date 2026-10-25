@@ -656,6 +656,35 @@ async function saveRecommendedApi(index){
     const ok = await saveProviders();
     if(ok) setStatus(trf('api.recommendSaved', {name:api.name}));
 }
+// 品牌 LOGO：左侧平台列表用品牌标识替代通用钥匙图标
+// 图片放在 static/images/brands/<key>.png（找不到会自动尝试同名 .svg），缺失时回退为首字母字标
+const BRAND_LOGOS = {
+    fastai:{ key:'fastai', name:'Fast AI', initials:'FA' },
+    fhl:{ key:'fhl', name:'FHL', initials:'FHL' },
+    'agnes-ai':{ key:'agnes-ai', name:'Agnes AI', initials:'AG' }
+};
+function brandLogoFor(item){
+    if(!item) return null;
+    const id = String(item.id || '').toLowerCase();
+    if(BRAND_LOGOS[id]) return BRAND_LOGOS[id];
+    // 兼容按名称归一化出的 id（如 fast-ai）以及用户自定义命名的平台
+    const name = String(item.name || '').trim().toLowerCase();
+    for(const key of Object.keys(BRAND_LOGOS)){
+        if(BRAND_LOGOS[key].name.toLowerCase() === name) return BRAND_LOGOS[key];
+    }
+    return null;
+}
+function brandLogoError(img){
+    if(!img) return;
+    const svg = img.dataset.brandFallback;
+    if(svg && !img.dataset.triedSvg){
+        img.dataset.triedSvg = '1';
+        img.src = svg;
+        return;
+    }
+    img.classList.add('is-missing');
+    img.closest('.provider-mark-brand')?.classList.add('is-fallback');
+}
 function sortedProviders(){
     const order = ['modelscope', 'volcengine'];
     return visibleProviders().sort((a, b) => {
@@ -706,10 +735,17 @@ function renderProviderList(){
                 </button>
             `;
         }
+        const brand = brandLogoFor(item);
+        const brandMark = brand ? `
+                <span class="provider-mark provider-mark-brand">
+                    <img src="/static/images/brands/${brand.key}.png" data-brand-fallback="/static/images/brands/${brand.key}.svg" alt="${escapeAttr(brand.name)}" onerror="brandLogoError(this)">
+                    <span class="provider-brand-initials">${escapeHtml(brand.initials)}</span>
+                </span>` : `
+                <span class="provider-mark"><i data-lucide="${item.has_key ? 'key-round' : 'key'}" class="w-4 h-4"></i></span>`;
         return `
-            <button class="provider-card provider-card-sortable ${active} ${stateClass}" type="button" onclick="selectProvider('${escapeHtml(item.id)}')"${providerDragAttrs(item)}>
+            <button class="provider-card provider-card-sortable ${brand ? 'provider-card-brand' : ''} ${active} ${stateClass}" type="button" onclick="selectProvider('${escapeHtml(item.id)}')"${providerDragAttrs(item)}>
                 <span class="provider-drag-handle" aria-hidden="true"><i data-lucide="grip-vertical" class="w-3.5 h-3.5"></i></span>
-                <span class="provider-mark"><i data-lucide="${item.has_key ? 'key-round' : 'key'}" class="w-4 h-4"></i></span>
+                ${brandMark}
                 <span class="provider-info">
                     <div class="provider-name">${escapeHtml(item.name || item.id)}</div>
                     <div class="provider-meta">${escapeHtml(item.base_url || '未配置地址')}</div>
