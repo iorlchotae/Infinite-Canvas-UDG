@@ -12,3 +12,11 @@ data/media_previews/
 data/projects.json
 data/prompt_libraries.json
 data/api_providers.json
+data/recommended_providers_seed.json
+
+# Packaged launcher (rebuild with tools/build_start_exe.py, 8MB binary)
+START.exe
+
+# PyInstaller build scratch (START.exe 打包中间产物)
+.build_pyi/
+*.spec
