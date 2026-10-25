@@ -230,6 +230,10 @@ MEDIA_PREVIEW_DIR = os.path.join(DATA_DIR, "media_previews")
 ASSET_LIBRARY_PATH = os.path.join(DATA_DIR, "asset_library.json")
 PROMPT_LIBRARY_PATH = os.path.join(DATA_DIR, "prompt_libraries.json")
 API_PROVIDERS_FILE = os.path.join(DATA_DIR, "api_providers.json")
+RECOMMENDED_PROVIDERS_SEED_FILE = os.path.join(DATA_DIR, "recommended_providers_seed.json")
+RECOMMENDED_PROVIDERS_SEED_VERSION = 1
+FASTAI_DEFAULT_BASE_URL = "https://fast.youkeduo.xyz"
+FHL_DEFAULT_BASE_URL = "https://www.fhl.mom"
 RUNNINGHUB_WORKFLOW_STORE_FILE = os.path.join(DATA_DIR, "runninghub_workflows.json")
 SHARED_FOLDERS_FILE = os.path.join(DATA_DIR, "shared_folders.json")
 GLOBAL_CONFIG_FILE = os.path.join(BASE_DIR, "global_config.json")
@@ -829,7 +833,57 @@ def default_api_providers():
             "volcengine_project_name": VOLCENGINE_DEFAULT_PROJECT_NAME,
             "volcengine_region": VOLCENGINE_DEFAULT_REGION,
         },
+    ] + default_recommended_providers()
+
+def default_recommended_providers():
+    """内置的推荐平台：首次运行即出现在平台列表，Key 由用户自行填写。"""
+    return [
+        {
+            "id": "fastai",
+            "name": "Fast AI",
+            "base_url": FASTAI_DEFAULT_BASE_URL,
+            "protocol": "openai",
+            "image_request_mode": "openai",
+            "image_generation_endpoint": "",
+            "image_edit_endpoint": "",
+            "enabled": True,
+            "primary": False,
+            "image_models": [],
+            "chat_models": ["gpt-5.6-sol"],
+            "video_models": [],
+            "model_protocols": {},
+        },
+        {
+            "id": "fhl",
+            "name": "FHL",
+            "base_url": FHL_DEFAULT_BASE_URL,
+            "protocol": "openai",
+            "image_request_mode": "openai",
+            "image_generation_endpoint": "",
+            "image_edit_endpoint": "",
+            "enabled": True,
+            "primary": False,
+            "image_models": ["gpt-image-2", "gpt-image-2-2k", "gpt-image-2-4k", "nano-banana"],
+            "chat_models": ["gpt-5.5"],
+            "video_models": [],
+            "model_protocols": {},
+        },
     ]
+
+def recommended_providers_seed_pending():
+    try:
+        with open(RECOMMENDED_PROVIDERS_SEED_FILE, "r", encoding="utf-8") as f:
+            return int((json.load(f) or {}).get("version") or 0) < RECOMMENDED_PROVIDERS_SEED_VERSION
+    except Exception:
+        return True
+
+def mark_recommended_providers_seeded():
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(RECOMMENDED_PROVIDERS_SEED_FILE, "w", encoding="utf-8") as f:
+            json.dump({"version": RECOMMENDED_PROVIDERS_SEED_VERSION}, f)
+    except Exception as e:
+        print(f"写入推荐平台种子标记失败: {e}")
 
 def merge_default_api_providers(providers, inject_missing=True):
     merged = [dict(item) for item in providers]
@@ -921,6 +975,23 @@ def merge_default_api_providers(providers, inject_missing=True):
         current["image_models"] = model_list_from_values([*image_models, *default_image_models])
         current["chat_models"] = model_list_from_values([*(current.get("chat_models") or []), *default_chat_models])
         current["video_models"] = []
+    # 推荐平台（Fast AI / FHL）：仅首次升级补入列表，用户主动删除后不再补回
+    if os.path.exists(API_PROVIDERS_FILE) and recommended_providers_seed_pending():
+        existing_ids = {str(item.get("id") or "").strip().lower() for item in merged}
+        existing_names = {str(item.get("name") or "").strip().lower() for item in merged}
+        added = []
+        for rec in default_recommended_providers():
+            if rec["id"] in existing_ids or rec["name"].lower() in existing_names:
+                continue
+            added.append(dict(rec))
+        if added:
+            merged.extend(added)
+            try:
+                with open(API_PROVIDERS_FILE, "w", encoding="utf-8") as f:
+                    json.dump(merged, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                print(f"保存推荐平台失败: {e}")
+        mark_recommended_providers_seeded()
     return merged
 
 def normalize_model_list(values):

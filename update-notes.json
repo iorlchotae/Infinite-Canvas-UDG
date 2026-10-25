@@ -1,8 +1,18 @@
 {
-  "version": "2026.10.25.6",
+  "version": "2026.10.25.8",
   "date": "2026-10-25",
-  "title": "API 设置平台列表显示品牌标识",
+  "title": "推荐 API 面板显示品牌标识",
   "changes": [
+    {
+      "type": "ui",
+      "scope": "推荐 API 面板",
+      "detail": "Fast AI、FHL、Agnes AI 三张推荐卡片的标题旁显示品牌标识，与左侧平台列表共用 static/images/brands 下的图片资源；方形 App 图标按圆角铺满，横版字标白底留白。"
+    },
+    {
+      "type": "feat",
+      "scope": "API 设置-平台列表",
+      "detail": "Fast AI 与 FHL 成为内置默认平台：首次运行即出现在左侧列表，Base URL、协议与推荐模型已预填，填入 Key 后即可调用；已有配置的用户在升级后自动补入一次，用户主动删除后不会被重新加回。"
+    },
     {
       "type": "ui",
       "scope": "API 设置-平台列表",

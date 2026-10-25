@@ -518,11 +518,20 @@ function renderRecommendApi(){
         : api.protocol === 'apimart'
         ? 'APIMart'
         : 'OpenAI';
+    // 推荐卡片标题旁显示品牌标识（与左侧平台列表共用同一套图片资源）
+    const recommendBrandMark = api => {
+        const id = String(api?.id || '').toLowerCase();
+        const name = String(api?.name || '').trim().toLowerCase();
+        const brand = BRAND_LOGOS[id] || Object.values(BRAND_LOGOS).find(item => item.name.toLowerCase() === name);
+        if(!brand) return '';
+        return `<span class="recommend-brand-mark fit-${brand.fit === 'cover' ? 'cover' : 'contain'}${brand.wide ? ' is-wide' : ''}"><img src="${brand.src}" alt="${escapeAttr(brand.name)}" onerror="brandLogoError(this)"></span>`;
+    };
     const recommendCardHtml = (api, index) => `
         <section class="recommend-card recommend-platform-card" style="--recommend-index:${index}" onclick="focusRecommendKey(event, ${index})">
             <div class="recommend-platform-info">
                 <div class="recommend-platform-head">
-                    <div>
+                    <div class="recommend-name-wrap">
+                        ${recommendBrandMark(api)}
                         <div class="recommend-name"><span>${escapeHtml(api.name)}</span></div>
                     </div>
                     <span class="recommend-badge">${escapeHtml(recommendProtocolBadge(api))}</span>

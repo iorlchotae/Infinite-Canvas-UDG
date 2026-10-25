@@ -106,6 +106,14 @@ html.studio-theme-dark body .recommend-seedance-private-icon svg { stroke:curren
 .recommend-card:hover { border-color:var(--line-strong); box-shadow:0 14px 30px rgba(15,23,42,.1); }
 .recommend-name { display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--text); font-size:16px; font-weight:950; letter-spacing:.02em; }
 .recommend-badge { height:22px; padding:0 8px; border-radius:999px; background:var(--soft); color:var(--muted); border:1px solid var(--line); display:inline-flex; align-items:center; font-size:10px; font-weight:850; white-space:nowrap; }
+/* 推荐卡片标题旁的品牌标识：与左侧平台列表共用 static/images/brands 资源 */
+.recommend-name-wrap { display:flex; align-items:center; gap:10px; min-width:0; }
+.recommend-brand-mark { width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex:0 0 auto; overflow:hidden; background:#fff; border:1px solid var(--line); padding:3px; }
+.recommend-brand-mark img { width:100%; height:100%; object-fit:contain; display:block; }
+.recommend-brand-mark.fit-cover { background:transparent; border-color:transparent; padding:0; }
+.recommend-brand-mark.fit-cover img { object-fit:cover; border-radius:inherit; }
+.recommend-brand-mark.is-wide { width:42px; }
+.recommend-brand-mark.is-fallback { background:var(--soft); }
 /* 「推荐API」按钮图标小跳动动画 */
 .api-link-btn i, .api-link-btn svg { animation:apiLinkBounce 1.4s ease-in-out infinite; transform-origin:center bottom; }
 .api-link-btn:hover i, .api-link-btn:hover svg { animation-play-state:paused; }

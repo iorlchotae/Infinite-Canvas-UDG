@@ -1,7 +1,15 @@
 {
-  "version": "2026.10.25.6",
-  "updated_at": "2026-10-25T18:30:00+08:00",
+  "version": "2026.10.25.8",
+  "updated_at": "2026-10-25T21:40:00+08:00",
   "items": [
+    {
+      "type": "feature",
+      "text": "推荐 API 面板的 Fast AI、FHL、Agnes AI 卡片标题旁显示品牌标识，与左侧平台列表使用同一套图片。"
+    },
+    {
+      "type": "feature",
+      "text": "平台列表内置「Fast AI」与「FHL」：首次运行即出现，填入 Key 后即可调用，无需先手动添加。"
+    },
     {
       "type": "feature",
       "text": "API 设置左侧平台列表：Fast AI、FHL、Agnes AI 显示官方品牌标识，其余平台保持通用图标。"
