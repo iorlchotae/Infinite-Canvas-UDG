@@ -18,13 +18,6 @@ const apiKindToggle = document.getElementById('apiKindToggle');
 const inputThumbsRow = document.getElementById('inputThumbsRow');
 const SMART_UPLOAD_MAX = 20;
 const SMART_REFERENCE_IMAGE_MAX = 20;
-// Keep these limits aligned with ComfyUI's MiniMaxH3ReferenceToVideo schema.
-const SMART_MINIMAX_REF_IMAGE_MAX = 9;
-const SMART_MINIMAX_REF_VIDEO_MAX = 3;
-const SMART_MINIMAX_REF_AUDIO_MAX = 3;
-const SMART_MINIMAX_DEFAULT_ENGINE = 'comfyui';
-const SMART_MINIMAX_RUNNINGHUB_WORKFLOW_ID = '2084608321469898754';
-const SMART_MINIMAX_RUNNINGHUB_WORKFLOW_TITLE = 'Minimax-多参视频生成';
 const inputPromptPreview = document.getElementById('inputPromptPreview');
 const minimap = document.getElementById('minimap');
 const minimapContent = document.getElementById('minimapContent');
@@ -101,8 +94,6 @@ let portDragState = null;
 let connectionEraseState = null;
 let saveTimer = null;
 let apiProviders = [];
-let comfyWorkflows = [];
-let comfyInstanceCount = 1;
 let assetLibrary = {categories:[]};
 let assetLibraryOpen = false;
 let assetTab = 'image';
@@ -164,7 +155,6 @@ const UNDO_LIMIT = 40;
 const undoStack = [];
 let undoSuppressed = false;
 let pendingUndoSnapshot = null;
-let runningHubWorkflowCache = {};
 function activeSmartCascadeCount(){ return smartCascadeRuns.size; }
 function smartCascadeRunForLoop(loopId){ return loopId ? smartCascadeRuns.get(loopId) || null : null; }
 function smartCascadeIsLoopRunning(loopId){ return Boolean(smartCascadeRunForLoop(loopId)); }
@@ -229,7 +219,6 @@ function performUndo(){
     undoSuppressed = false;
     toast(tr('smart.toastUndone'));
 }
-let comfyWorkflowCache = {};
 let cropState = null;
 let cropDrag = null;
 let cropAspectPreset = 'free';
@@ -321,7 +310,6 @@ let settings = {
     customHeight:'',
     quality:'auto',
     count:1,
-    videoProvider:'',
     videoModel:'',
     videoDuration:5,
     videoAspect:'16:9',
@@ -347,10 +335,6 @@ let settings = {
     msCustomSize:'',
     msCustomWidth:'',
     msCustomHeight:'',
-    comfyMode:'text',
-    comfyWorkflow:'',
-    comfyParams:{},
-    rhConfigKey:'',
     rhPayment:'free',
     rhInstanceType:'',
     rhParams:{},
@@ -516,11 +500,6 @@ function smartVideoPlayerHtml(url, attrs=''){
     const original = smartOriginalMediaUrl(url);
     const safe = escapeHtml(displayMediaUrl({url:original}));
     return `<video src="${safe}" data-url="${escapeAttr(original)}" data-inline-video-active="1" controls autoplay playsinline preload="metadata" disablepictureinpicture controlslist="nodownload noplaybackrate noremoteplayback"${attrs ? ` ${attrs}` : ''}></video>`;
-}
-function smartMinimaxVideoPlayerHtml(url){
-    const original = smartOriginalMediaUrl(url);
-    const src = displayMediaUrl({url:original});
-    return `<video src="${escapeHtml(src)}" data-url="${escapeAttr(original)}" data-minimax-player="1" controls preload="metadata" playsinline disablepictureinpicture controlslist="nodownload noplaybackrate noremoteplayback"></video>`;
 }
 function smartActivateVideoPreview(target){
     const root = target?.closest?.('.media-video-card,.video-thumb,.image-wrap,.thumb-item') || target?.parentElement || null;
@@ -690,22 +669,12 @@ function settingsForStorage(source=settings){
     clean.videoTempShLinks = (clean.videoTempShLinks || []).filter(item => item?.manual === true);
     return clean;
 }
-function normalizeSmartVideoModeSettings(target, preferMultimodal=false){
-    if(!target || typeof target !== 'object') return target;
-    target.videoUseFrameRoles = Boolean(target.videoUseFrameRoles);
-    if(preferMultimodal && !target.videoUseFrameRoles && target._videoMultimodalUserSet !== true) target.videoMultimodal = true;
-    else target.videoMultimodal = Boolean(target.videoMultimodal);
-    if(target.videoUseFrameRoles) target.videoMultimodal = false;
-    return target;
-}
 function isApiLikeEngine(engine){
     return ['api', 'volcengine'].includes(String(engine || '').toLowerCase());
 }
 function smartLoopRoundSettings(runSettings, ctx=smartLoopContext){
     const next = {...(runSettings || {})};
-    const imageCountEngine = isApiLikeEngine(next.engine)
-        ? next.apiKind !== 'video'
-        : next.engine === 'modelscope';
+    const imageCountEngine = isApiLikeEngine(next.engine) || next.engine === 'modelscope';
     if(ctx?.nodeId && imageCountEngine){
         next.count = 1;
     }
@@ -744,7 +713,6 @@ function canvasForStorage(){
     (clean.nodes || []).forEach(node => {
         if(Array.isArray(node.images)) node.images = node.images.map(mediaItemForStorage);
         if(node.runSettings) node.runSettings = settingsForStorage(node.runSettings);
-        if(node.type === 'smart-minimax') node.timelinePlaying = false;
     });
     return clean;
 }
@@ -962,12 +930,10 @@ const initialSmartSettings = cloneSmartSettings(settings);
 let canvasDefaultSmartSettings = cloneSmartSettings(settings);
 let recentSmartSettingsByMode = {};
 function smartSettingsModeKey(source=settings){
-    const engine = ['api','volcengine','modelscope','comfy','runninghub'].includes(source?.engine) ? source.engine : 'api';
-    if(engine === 'api') return `api:${source?.apiKind === 'video' ? 'video' : 'image'}`;
-    if(engine === 'volcengine') return `volcengine:${source?.apiKind === 'video' ? 'video' : 'image'}`;
-    if(engine === 'comfy') return `comfy:${['text','enhance','edit','custom'].includes(source?.comfyMode) ? source.comfyMode : 'text'}`;
-    if(engine === 'runninghub') return 'runninghub';
-    return 'modelscope';
+    const engine = ['api','volcengine','modelscope'].includes(source?.engine) ? source.engine : 'api';
+    if(engine === 'volcengine') return 'volcengine';
+    if(engine === 'modelscope') return 'modelscope';
+    return 'api';
 }
 function loadRecentSmartSettings(){
     try {
@@ -1002,26 +968,22 @@ function rememberRecentSmartSettings(source=settings, node=null){
     saveRecentSmartSettings();
 }
 function applyRecentSmartSettingsForCurrentMode(){
-    const requestedEngine = ['api','volcengine','modelscope','comfy','runninghub'].includes(settings.engine) ? settings.engine : 'api';
-    const requestedApiKind = settings.apiKind === 'video' ? 'video' : 'image';
+    const requestedEngine = ['api','volcengine','modelscope'].includes(settings.engine) ? settings.engine : 'api';
     const key = smartSettingsModeKey(settings);
     const saved = recentSmartSettingsForMode(key);
     if(!Object.keys(saved).length){
         settings.engine = requestedEngine;
-        if(isApiLikeEngine(requestedEngine)) settings.apiKind = requestedApiKind;
         clearVolcengineSelectionOutsideVolcengine(settings);
         sanitizeSmartApiSelection(settings);
         return;
     }
     settings = {...settings, ...saved, engine:requestedEngine};
-    if(isApiLikeEngine(requestedEngine)) settings.apiKind = requestedApiKind;
     clearVolcengineSelectionOutsideVolcengine(settings);
     sanitizeSmartApiSelection(settings);
 }
 function clearVolcengineSelectionOutsideVolcengine(target=settings){
     if(!target || typeof target !== 'object' || target.engine === 'volcengine') return target;
     if(target.provider_id === 'volcengine') target.provider_id = '';
-    if(target.videoProvider === 'volcengine') target.videoProvider = '';
     return target;
 }
 function isSmartImageNode(node){
@@ -1031,7 +993,7 @@ function isSmartGroupNode(node){
     return Boolean(node && node.type === 'smart-group');
 }
 function isSmartRunnableNode(node){
-    return Boolean(isSmartImageNode(node) || isSmartGroupNode(node) || node?.type === 'smart-minimax');
+    return Boolean(isSmartImageNode(node) || isSmartGroupNode(node));
 }
 function isHistoryGroupNode(node){
     return Boolean(isSmartImageNode(node) && (node.isHistoryGroup || node.historyFor));
@@ -1109,7 +1071,7 @@ function exceedsFourKStandard(width, height){
 function withOutpaintDisplaySettings(node, baseSettings){
     const size = validOutpaintSize(node);
     if(!size) return baseSettings;
-    const engine = ['api','volcengine','modelscope','comfy','runninghub'].includes(baseSettings?.engine) ? baseSettings.engine : 'api';
+    const engine = ['api','volcengine','modelscope'].includes(baseSettings?.engine) ? baseSettings.engine : 'api';
     const next = {
         ...baseSettings,
         resolution:'custom',
@@ -1126,10 +1088,6 @@ function withOutpaintDisplaySettings(node, baseSettings){
         next.msCustomWidth = size.width;
         next.msCustomHeight = size.height;
         next.msCustomSize = `${size.width}x${size.height}`;
-    }
-    if(engine === 'comfy'){
-        next.width = size.width;
-        next.height = size.height;
     }
     return next;
 }
@@ -1803,7 +1761,6 @@ function promptNodeSplitPreviewHeight(node){
 }
 function syncPromptNodeHeightForSplit(node, prevExtra=0){
     if(!node) return;
-    if(node.type === 'smart-minimax') return runMinimaxNode(node.id);
     const nextExtra = promptNodeSplitExtraHeight(node);
     const explicitH = Number(node.h);
     const currentH = Number.isFinite(explicitH) ? explicitH : 0;
@@ -1899,7 +1856,6 @@ function imageLayout(images, scale=1, node=null){
         return {cols:1, rows:1, ...smartGroupLayoutSize(node), thumb:96, single:true};
     }
     if(node?.type === 'smart-prompt') return {cols:1, rows:1, ...promptNodeLayoutSize(node), thumb:96, single:true};
-    if(node?.type === 'smart-minimax') return {cols:1, rows:1, ...smartMinimaxLayoutSize(node), thumb:96, single:true};
     if(node?.type === 'smart-loop'){
         const explicitW = Number(node.w);
         const explicitH = Number(node.h);
@@ -1973,11 +1929,6 @@ function fitSmartLoopNode(node){
     if(!node || node.type !== 'smart-loop') return;
     node.w = smartLoopWidth(node);
     node.h = smartLoopHeight(node);
-}
-function smartMinimaxLayoutSize(node){
-    const width = Math.max(860, Number(node?.w || 0) || 1040);
-    const height = Math.max(520, Number(node?.h || 0) || 640);
-    return {width, height};
 }
 
 function nodeRect(node){
@@ -2258,205 +2209,8 @@ function volcengineProvider(){
         enabled:true
     };
 }
-function runningHubProvider(){
-    return (apiProviders || []).find(p => p.id === 'runninghub' && p.enabled !== false) || null;
-}
-function runningHubEntries(kind){
-    const provider = runningHubProvider();
-    if(kind === 'model'){
-        return (provider?.image_models || []).map(model => ({
-            id:String(model || '').trim(),
-            title:String(model || '').trim(),
-            enabled:true
-        })).filter(item => item.id);
-    }
-    const key = kind === 'workflow' ? 'rh_workflows' : 'rh_apps';
-    return Array.isArray(provider?.[key]) ? provider[key].filter(item => item?.enabled !== false && item?.hidden !== true) : [];
-}
-function runningHubEntryId(entry, kind){
-    if(kind === 'model') return String(entry?.id || entry?.model || entry?.title || '').trim();
-    return String(kind === 'workflow' ? (entry?.workflowId || entry?.id || '') : (entry?.appId || entry?.webappId || entry?.id || '')).trim();
-}
-function runningHubEntryLabel(entry, kind){
-    const id = runningHubEntryId(entry, kind);
-    if(kind === 'model') return entry?.title || entry?.name || id;
-    return entry?.title || entry?.name || (kind === 'workflow' ? `Workflow ${id}` : `AI App ${id}`);
-}
-function smartMinimaxEngine(node){
-    return String(node?.minimaxEngine || '').trim().toLowerCase() === 'runninghub'
-        ? 'runninghub'
-        : SMART_MINIMAX_DEFAULT_ENGINE;
-}
-function smartMinimaxRunningHubEntry(node=null){
-    const entries = runningHubEntries('workflow');
-    const requestedId = String(node?.minimaxRunningHubWorkflowId || '').trim();
-    const titleKey = SMART_MINIMAX_RUNNINGHUB_WORKFLOW_TITLE.toLowerCase().replace(/\s+/g, '');
-    let entry = requestedId ? entries.find(item => runningHubEntryId(item, 'workflow') === requestedId) : null;
-    if(!entry) entry = entries.find(item => runningHubEntryId(item, 'workflow') === SMART_MINIMAX_RUNNINGHUB_WORKFLOW_ID);
-    if(!entry){
-        entry = entries.find(item => {
-            const title = String(runningHubEntryLabel(item, 'workflow') || '').toLowerCase().replace(/\s+/g, '');
-            return title === titleKey || (/minimax/.test(title) && /多参视频/.test(title));
-        });
-    }
-    if(entry && node) node.minimaxRunningHubWorkflowId = runningHubEntryId(entry, 'workflow');
-    return entry || null;
-}
-function smartMinimaxRunningHubFieldText(field){
-    return [
-        field?.nodeId,
-        field?.fieldName,
-        field?.label,
-        field?.group,
-        field?.note
-    ].map(value => String(value || '')).join(' ').toLowerCase();
-}
-function smartMinimaxRunningHubFieldMatches(field, patterns=[], fallbackKeys=[]){
-    const key = rhParamKey(field?.nodeId, field?.fieldName);
-    const text = smartMinimaxRunningHubFieldText(field);
-    return fallbackKeys.includes(key) || patterns.some(pattern => pattern.test(text));
-}
-function smartMinimaxRunningHubFullAspectField(field){
-    const key = rhParamKey(field?.nodeId, field?.fieldName);
-    const text = smartMinimaxRunningHubFieldText(field);
-    const defaultValue = rhDefaultValue(field);
-    return key === '115::aspect_ratio'
-        || /resolution\s*selector|size/.test(text)
-        || /\d+\s*:\s*\d+\s*\([^)]+\)/.test(defaultValue);
-}
-function smartMinimaxFullAspectLabel(ratio){
-    return ({
-        '16:9':'16:9 (Widescreen)',
-        '9:16':'9:16 (Portrait)',
-        '1:1':'1:1 (Square)',
-        '4:3':'4:3 (Standard)',
-        '3:4':'3:4 (Portrait)',
-        '21:9':'21:9 (Ultrawide)'
-    })[ratio] || ratio;
-}
-function smartMinimaxRunningHubValue(field, desired){
-    const wanted = String(desired ?? '').trim();
-    if(smartMinimaxRunningHubFullAspectField(field)) return wanted;
-    const options = rhExtractFieldOptions(field) || [];
-    if(options.length){
-        const exact = options.find(option => String(option).trim() === wanted);
-        if(exact !== undefined) return exact;
-        const normalized = wanted.toLowerCase().replace(/\s+/g, '');
-        const similar = options.find(option => String(option).toLowerCase().replace(/\s+/g, '') === normalized);
-        if(similar !== undefined) return similar;
-        const numericWanted = Number(wanted);
-        if(Number.isFinite(numericWanted)){
-            const numeric = options.find(option => Number(option) === numericWanted);
-            if(numeric !== undefined) return numeric;
-        }
-        return rhDefaultValue(field) || options[0] || wanted;
-    }
-    const kind = rhFieldKind(field);
-    if(['number','slider'].includes(kind) && wanted !== '' && Number.isFinite(Number(wanted))) return Number(wanted);
-    return desired;
-}
-function smartMinimaxRunningHubFieldsForConfig(fields){
-    return (fields || []).map(field => {
-        const kind = rhFieldKind(field);
-        return ['image','video','audio'].includes(kind) ? {...field, required:false} : {...field};
-    });
-}
-function smartMinimaxSetRunningHubParam(sourceSettings, fields, patterns, fallbackKeys, desired){
-    const field = (fields || []).find(item => smartMinimaxRunningHubFieldMatches(item, patterns, fallbackKeys));
-    if(!field || desired === undefined || desired === null) return null;
-    sourceSettings.rhParams[rhParamKey(field.nodeId, field.fieldName)] = {
-        value:smartMinimaxRunningHubValue(field, desired)
-    };
-    return field;
-}
-function runningHubEntryKey(kind, id){
-    return `${kind}:${String(id || '').trim()}`;
-}
-function parseRunningHubEntryKey(value){
-    const text = String(value || '').trim();
-    const match = text.match(/^(app|workflow|model):(.+)$/);
-    return match ? {kind:match[1], id:match[2].trim()} : null;
-}
-function runningHubAllEntries(){
-    return [
-        ...runningHubEntries('model').map(entry => ({kind:'model', id:runningHubEntryId(entry, 'model'), entry})).filter(x => x.id),
-        ...runningHubEntries('app').map(entry => ({kind:'app', id:runningHubEntryId(entry, 'app'), entry})).filter(x => x.id),
-        ...runningHubEntries('workflow').map(entry => ({kind:'workflow', id:runningHubEntryId(entry, 'workflow'), entry})).filter(x => x.id)
-    ];
-}
-function selectedRunningHubRef(sourceSettings=settings){
-    const all = runningHubAllEntries();
-    sourceSettings = sourceSettings || settings;
-    const parsed = parseRunningHubEntryKey(sourceSettings.rhConfigKey || '');
-    let ref = parsed ? all.find(item => item.kind === parsed.kind && item.id === parsed.id) : null;
-    if(!ref && all.length) ref = all[0];
-    if(ref && sourceSettings === settings) settings.rhConfigKey = runningHubEntryKey(ref.kind, ref.id);
-    return ref || null;
-}
-function rhEntryFields(entry){
-    return Array.isArray(entry?.fields) ? entry.fields : [];
-}
-function rhWorkflowJsonFromSources(...sources){
-    for(const source of sources){
-        if(source && typeof source === 'object' && Object.keys(source).length) return source;
-    }
-    return {};
-}
-function rhCurrentKind(sourceSettings=settings){
-    return selectedRunningHubRef(sourceSettings)?.kind || 'app';
-}
-function runningHubSelectedModel(sourceSettings=settings){
-    const ref = selectedRunningHubRef(sourceSettings);
-    return ref?.kind === 'model' ? ref.id : '';
-}
-function runningHubModelApiSettings(sourceSettings=settings){
-    const model = runningHubSelectedModel(sourceSettings);
-    return {...(sourceSettings || settings), engine:'api', apiKind:'image', provider_id:'runninghub', model};
-}
-function rhUsableFields(fields){
-    const list = Array.isArray(fields) ? fields : [];
-    if(!list.length) return [];
-    const enabled = list.filter(f => f.enabled === true);
-    return enabled.length ? enabled : list;
-}
-function rhActiveFields(sourceSettings=settings){
-    const ref = selectedRunningHubRef(sourceSettings);
-    let fields = Array.isArray(sourceSettings?.rhFields) && sourceSettings.rhFields.length
-        ? sourceSettings.rhFields
-        : rhEntryFields(ref?.entry);
-    if(ref?.kind === 'workflow' && !(Array.isArray(sourceSettings?.rhFields) && sourceSettings.rhFields.length)){
-        const cached = runningHubWorkflowCache[ref.id];
-        if(Array.isArray(cached?.fields) && cached.fields.length) fields = cached.fields;
-    }
-    fields = rhUsableFields(fields);
-    return sortRunningHubFields(fields);
-}
-function runningHubRunNeedsPrompt(sourceSettings=settings){
-    if((sourceSettings || settings).engine !== 'runninghub') return true;
-    if(runningHubSelectedModel(sourceSettings)) return true;
-    const fields = rhActiveFields(sourceSettings);
-    const promptFields = fields.filter(field => rhFieldRole(field) === 'prompt');
-    if(!promptFields.length) return false;
-    return promptFields.some(field => field.required === true && !rhDefaultValue(field).trim());
-}
 function smartRunNeedsPrompt(sourceSettings=settings){
-    sourceSettings = sourceSettings || settings;
-    if(sourceSettings.engine === 'runninghub') return runningHubRunNeedsPrompt(sourceSettings);
-    if(sourceSettings.engine === 'comfy' && sourceSettings.comfyMode === 'enhance') return false;
     return true;
-}
-function sortRunningHubFields(fields){
-    return [...(fields || [])].sort((a, b) => {
-        const ak = rhFieldKind(a), bk = rhFieldKind(b);
-        if(ak === 'image' && bk === 'image'){
-            const ao = Number(a.imageOrder) || 9999;
-            const bo = Number(b.imageOrder) || 9999;
-            if(ao !== bo) return ao - bo;
-        }
-        if(ak === 'image' && bk !== 'image') return -1;
-        if(ak !== 'image' && bk === 'image') return 1;
-        return String(a.nodeId || '').localeCompare(String(b.nodeId || ''), undefined, {numeric:true}) || String(a.fieldName || '').localeCompare(String(b.fieldName || ''));
-    });
 }
 function chatApiProviders(){
     return (apiProviders || []).filter(p => p.enabled !== false && (p.chat_models || []).length);
@@ -2489,14 +2243,6 @@ function apiProviderById(providerId){
     return (apiProviders || []).find(p => p.id === providerId) || imageProviders()[0] || null;
 }
 // 认证素材 asset:// 是平台绑定的：返回某 provider 所属的认证平台键（与后端一致）
-function videoProviderPlatform(providerId){
-    const p = (apiProviders || []).find(x => x.id === providerId);
-    const proto = String(p?.protocol || '').toLowerCase();
-    const base = String(p?.base_url || '').toLowerCase();
-    if(proto === 'apimart' || base.includes('apimart.ai')) return 'apimart';
-    if(proto === 'volcengine' || providerId === 'volcengine') return 'volcengine';
-    return '';
-}
 function providerImageModels(providerId){
     if(providerId === 'volcengine') return volcengineProvider().image_models || [];
     return (apiProviders || []).find(p => p.id === providerId)?.image_models || [];
@@ -2528,7 +2274,7 @@ let _jimengModelRefreshing = false;
 // 参考图增删导致即梦文生图/图生图切换时，重新渲染参数面板以更新模型下拉。
 function syncJimengModelPillForRefs(){
     if(_jimengModelRefreshing) return;
-    if(!isJimengProviderId(settings.provider_id) || settings.engine !== 'api' || settings.apiKind === 'video'){
+    if(!isJimengProviderId(settings.provider_id) || settings.engine !== 'api'){
         _jimengLastEditMode = null;
         return;
     }
@@ -2538,56 +2284,12 @@ function syncJimengModelPillForRefs(){
     _jimengModelRefreshing = true;
     try { scheduleDynamicParamsRefresh(80); } finally { _jimengModelRefreshing = false; }
 }
-// 即梦各视频指令支持的模型集合不同，按当前参考素材推断指令并过滤模型下拉。
-const JIMENG_SEEDANCE_VIDEO_MODELS = ['seedance2.0_vip', 'seedance2.0fast_vip', 'seedance2.0', 'seedance2.0fast', 'seedance2.0mini'];
-const JIMENG_VIDEO_MODELS_BY_COMMAND = {
-    text2video: JIMENG_SEEDANCE_VIDEO_MODELS,
-    multimodal2video: JIMENG_SEEDANCE_VIDEO_MODELS,
-    image2video: ['seedance1.0fast', 'seedance1.5pro', ...JIMENG_SEEDANCE_VIDEO_MODELS],
-    frames2video: ['seedance1.5pro', ...JIMENG_SEEDANCE_VIDEO_MODELS],
-};
-function jimengVideoCommand(){
-    const node = activeComposerNode() || selectedNode();
-    const refs = node ? visibleReferenceImagesFor(node) : [];
-    const effectiveRefs = applyUploadedUrlsToSmartRefs(refs, settings);
-    const imageRefs = imageRefsOnly(effectiveRefs);
-    const hasVideoRef = videoRefsOnly(effectiveRefs).length > 0;
-    if(settings.videoMultimodal || hasVideoRef) return 'multimodal2video';
-    if(imageRefs.length >= 2) return settings.videoUseFrameRoles ? 'frames2video' : 'multiframe2video';
-    if(imageRefs.length >= 1) return 'image2video';
-    return 'text2video';
-}
-function filterJimengVideoModels(models){
-    if(!isJimengProviderId(settings.videoProvider)) return models;
-    const allowed = JIMENG_VIDEO_MODELS_BY_COMMAND[jimengVideoCommand()];
-    if(!allowed) return models; // multiframe2video 等：官方规格未知，不过滤
-    return (models || []).filter(m => allowed.includes(String(m)));
-}
-let _jimengLastVideoCommand = null;
-function syncJimengVideoModelPillForRefs(){
-    if(_jimengModelRefreshing) return;
-    if(!isJimengProviderId(settings.videoProvider) || settings.engine !== 'api' || settings.apiKind !== 'video'){
-        _jimengLastVideoCommand = null;
-        return;
-    }
-    const command = jimengVideoCommand();
-    if(command === _jimengLastVideoCommand) return;
-    _jimengLastVideoCommand = command;
-    _jimengModelRefreshing = true;
-    try { scheduleDynamicParamsRefresh(80); } finally { _jimengModelRefreshing = false; }
-}
 function sanitizeSmartApiSelection(target=settings){
     if(!target || typeof target !== 'object') return target;
     if(target.engine === 'volcengine'){
-        if(target.apiKind === 'video'){
-            target.videoProvider = 'volcengine';
-            const models = volcengineVideoModels();
-            if(!models.includes(target.videoModel)) target.videoModel = models[0] || '';
-        } else {
-            target.provider_id = 'volcengine';
-            const models = providerImageModels('volcengine');
-            if(!models.includes(target.model)) target.model = models[0] || '';
-        }
+        target.provider_id = 'volcengine';
+        const models = providerImageModels('volcengine');
+        if(!models.includes(target.model)) target.model = models[0] || '';
         return target;
     }
     clearVolcengineSelectionOutsideVolcengine(target);
@@ -2595,14 +2297,10 @@ function sanitizeSmartApiSelection(target=settings){
         const models = providerImageModels(target.provider_id);
         if(models.length && !models.includes(target.model)) target.model = models[0] || '';
     }
-    if((target.engine || 'api') === 'api' && (target.apiKind || 'image') !== 'video'){
+    if((target.engine || 'api') === 'api'){
         const allowAuto = isGptImageAutoSizeModel(target.model);
         if(!target.resolution) target.resolution = allowAuto ? defaultSmartApiResolution(target.model) : '1k';
         if(!allowAuto && target.resolution === 'auto') target.resolution = '1k';
-    }
-    if(target.videoProvider){
-        const models = providerVideoModels(target.videoProvider);
-        if(models.length && !models.includes(target.videoModel)) target.videoModel = models[0] || '';
     }
     return target;
 }
@@ -2612,120 +2310,10 @@ function modelscopeProvider(){
 function modelscopeImageModels(){
     return modelscopeProvider()?.image_models || ['Tongyi-MAI/Z-Image-Turbo'];
 }
-const DEFAULT_VIDEO_MODELS = ['veo3-fast','veo3','sora','runway','kling','pika','minimax-video','wan-v2','seedance-1.0-pro','jimeng-vide-3.0','jimeng-video-3.0-pro'];
-function videoApiProviders(){
-    const fromConfig = (apiProviders || []).filter(p => p.enabled !== false && p.id !== 'volcengine' && (p.video_models || []).length);
-    if(fromConfig.length) return fromConfig;
-    return [{id:'comfly', name:'Comfly', video_models:DEFAULT_VIDEO_MODELS, enabled:true}];
-}
-function videoProviderById(providerId){
-    if(providerId === 'volcengine') return volcengineProvider();
-    return videoApiProviders().find(p => p.id === providerId) || videoApiProviders()[0] || null;
-}
-function providerVideoModels(providerId){
-    if(providerId === 'volcengine') return volcengineVideoModels();
-    const provider = videoApiProviders().find(p => p.id === providerId);
-    const models = provider?.video_models || DEFAULT_VIDEO_MODELS;
-    return [...new Set(models)];
-}
-function volcengineVideoModels(){
-    const provider = (apiProviders || []).find(p => p.id === 'volcengine');
-    return [...new Set(provider?.video_models || DEFAULT_VIDEO_MODELS)];
-}
-function renderVideoProviderControl(providers){
-    const current = (providers || []).find(p => p.id === settings.videoProvider) || videoProviderById(settings.videoProvider);
-    return `<div class="smart-control provider-control">
-        <button class="smart-pill" type="button"><i data-lucide="plug-zap"></i><span class="sub">${escapeHtml(current?.name || settings.videoProvider || tr('smart.platform'))}</span></button>
-        <div class="smart-popover compact-popover">
-            <div class="smart-popover-title">${escapeHtml(tr('smart.videoPlatform'))}</div>
-            <div class="model-list">
-                ${providers.map(p => `<button type="button" class="direct-option ${p.id === settings.videoProvider ? 'active' : ''}" data-smart-param="videoProvider" data-smart-value="${escapeHtml(p.id)}"><span>${escapeHtml(p.name || p.id)}</span></button>`).join('') || `<div class="muted-note">${escapeHtml(tr('smart.noVideoPlatform'))}</div>`}
-            </div>
-        </div>
-    </div>`;
-}
-function renderVideoModelControl(models){
-    return `<div class="smart-control model-control">
-        <button class="smart-pill" type="button"><i data-lucide="film"></i><span class="sub">${escapeHtml(settings.videoModel || tr('smart.model'))}</span></button>
-        <div class="smart-popover compact-popover">
-            <div class="smart-popover-title">${escapeHtml(tr('smart.videoModel'))}</div>
-            <div class="model-list">
-                ${models.map(m => `<button type="button" class="direct-option ${m === settings.videoModel ? 'active' : ''}" data-smart-param="videoModel" data-smart-value="${escapeHtml(m)}"><span>${escapeHtml(m)}</span></button>`).join('') || `<div class="muted-note">${escapeHtml(tr('smart.noVideoModel'))}</div>`}
-            </div>
-        </div>
-    </div>`;
-}
-function renderVideoDurationControl(){
-    const v = Math.max(1, Math.min(60, Number(settings.videoDuration) || 5));
-    const quick = [3, 4, 5, 6, 8, 10, 12, 15];
-    return `<div class="smart-control duration-control" title="${escapeHtml(tr('smart.videoDurationTip'))}">
-        <button class="smart-pill" type="button"><i data-lucide="timer"></i><span>${v}s</span></button>
-        <div class="smart-popover compact-popover">
-            <div class="smart-popover-title">${escapeHtml(tr('smart.videoDuration'))}</div>
-            <div class="duration-grid">
-                ${quick.map(n => `<button type="button" class="duration-option ${n === v ? 'active' : ''}" data-smart-param="videoDuration" data-smart-value="${n}">${n}s</button>`).join('')}
-            </div>
-            <label class="duration-custom">
-                <span>${escapeHtml(tr('smart.custom'))}</span>
-                <input type="number" min="1" max="60" step="1" data-param="videoDuration" value="${v}">
-            </label>
-        </div>
-    </div>`;
-}
-function renderVideoAspectControl(){
-    const options = [
-        ['16:9','16:9'], ['9:16','9:16'], ['1:1','1:1'], ['4:3','4:3'], ['3:4','3:4'],
-        ['21:9','21:9'], ['9:21','9:21'], ['keep_ratio', tr('smart.videoAspectKeep')], ['adaptive', tr('smart.videoAspectAdaptive')]
-    ];
-    const value = settings.videoAspect || '16:9';
-    const labelMap = Object.fromEntries(options);
-    return `<div class="smart-control aspect-control">
-        <button class="smart-pill" type="button"><i data-lucide="scan"></i><span>${escapeHtml(labelMap[value] || value)}</span></button>
-        <div class="smart-popover">
-            <div class="smart-popover-title">${escapeHtml(tr('smart.videoAspect'))}</div>
-            <div class="ratio-grid">
-                ${options.map(([v,l]) => `<button type="button" class="ratio-option ${v === value ? 'active' : ''}" data-smart-param="videoAspect" data-smart-value="${escapeHtml(v)}"><span class="ratio-icon ${videoAspectIconClass(v)}"></span><span>${escapeHtml(l)}</span></button>`).join('')}
-            </div>
-        </div>
-    </div>`;
-}
-function renderVideoResolutionControl(){
-    const options = [['', tr('smart.videoResAuto')], ['480p','480P'], ['720p','720P'], ['1080p','1080P']];
-    const value = settings.videoResolution || '';
-    const labelMap = Object.fromEntries(options);
-    return `<div class="smart-control resolution-control">
-        <button class="smart-pill" type="button"><i data-lucide="monitor"></i><span>${escapeHtml(labelMap[value] || value || tr('smart.videoResAuto'))}</span></button>
-        <div class="smart-popover compact-popover">
-            <div class="smart-popover-title">${escapeHtml(tr('smart.videoResolution'))}</div>
-            <div class="model-list">
-                ${options.map(([v,l]) => `<button type="button" class="direct-option ${v === value ? 'active' : ''}" data-smart-param="videoResolution" data-smart-value="${escapeHtml(v)}"><span>${escapeHtml(l)}</span></button>`).join('')}
-            </div>
-        </div>
-    </div>`;
-}
-function renderVideoToggleControl(key, label){
-    const on = !!settings[key];
-    return `<button type="button" class="setting-check ${on ? 'active' : ''}" data-toggle-param="${escapeHtml(key)}"><span class="check-box"></span><span>${escapeHtml(label)}</span></button>`;
-}
 function renderTempShUploadControl(){
     return `<button type="button" class="smart-pill cloud-upload-pill" data-temp-sh-upload-video title="上传当前输入图片或视频到云端直链"><i data-lucide="upload-cloud"></i><span>上传云端</span></button>`;
 }
-function renderManualVideoUrlControl(){
-    return `<button type="button" class="smart-pill manual-video-url-pill" data-manual-video-url title="手动输入媒体 URL"><i data-lucide="link"></i><span>输入网址</span></button>`;
-}
 // 可信素材模式：打开后可选择素材来源——素材库认证链接 / 自行上传云端 / 自行输入网址。
-function renderVideoTrustedAssetControl(){
-    const on = !!settings.videoTrustedAsset;
-    let html = renderVideoToggleControl('videoTrustedAsset', tr('smart.videoTrustedAsset'));
-    if(!on) return html;
-    const src = ['library','cloud','manual'].includes(settings.videoTrustedSource) ? settings.videoTrustedSource : 'library';
-    html += `<div class="trusted-source-row">
-        <button type="button" class="smart-pill trusted-src-pill ${src === 'library' ? 'active' : ''}" data-trusted-source="library" title="使用素材库中已注册的认证素材链接（asset://）"><i data-lucide="library"></i><span>素材库链接</span></button>
-        <button type="button" class="smart-pill trusted-src-pill ${src === 'cloud' ? 'active' : ''}" data-trusted-source="cloud" title="把当前输入图片/视频上传到云端直链"><i data-lucide="upload-cloud"></i><span>上传云端</span></button>
-        <button type="button" class="smart-pill trusted-src-pill ${src === 'manual' ? 'active' : ''}" data-trusted-source="manual" title="手动输入媒体 URL 或 asset:// 地址"><i data-lucide="link"></i><span>输入网址</span></button>
-    </div>`;
-    return html;
-}
 function optionHtml(value, label, selected){
     return `<option value="${escapeHtml(value)}" ${String(value) === String(selected) ? 'selected' : ''}>${escapeHtml(label ?? value)}</option>`;
 }
@@ -2763,25 +2351,10 @@ function apiImageSize(ratioValue, resolutionValue, customRatioValue='', customSi
 function normalizeApiSizeSettings(prefix=''){
     const ratioKey = prefix ? `${prefix}Ratio` : 'ratio';
     const resKey = prefix ? `${prefix}Resolution` : 'resolution';
-    const allowAuto = !prefix && settings.engine === 'api' && settings.apiKind !== 'video' && isGptImageAutoSizeModel(settings.model);
+    const allowAuto = !prefix && settings.engine === 'api' && isGptImageAutoSizeModel(settings.model);
     if(!settings[resKey]) settings[resKey] = allowAuto ? defaultSmartApiResolution(settings.model) : '1k';
     if(!allowAuto && settings[resKey] === 'auto') settings[resKey] = '1k';
     if(settings[resKey] === 'auto' && !settings[ratioKey]) settings[ratioKey] = 'square';
-}
-async function ensureComfyWorkflow(name){
-    if(!name) return null;
-    if(comfyWorkflowCache[name]) return comfyWorkflowCache[name];
-    const data = await fetch(`/api/workflows/${encodeURIComponent(name)}`).then(r => r.ok ? r.json() : null).catch(() => null);
-    if(data) comfyWorkflowCache[name] = data;
-    return data;
-}
-function currentComfyFields(){
-    return comfyWorkflowCache[settings.comfyWorkflow]?.config?.fields || [];
-}
-function comfyParamValue(field){
-    settings.comfyParams = settings.comfyParams || {};
-    if(settings.comfyParams[field.id] !== undefined) return settings.comfyParams[field.id];
-    return field.default ?? (field.type === 'boolean' ? false : (field.type === 'number' || field.type === 'slider' ? 0 : ''));
 }
 function updateProviderModels(){ renderDynamicParams(); }
 let dynamicParamsRefreshTimer = 0;
@@ -2865,22 +2438,12 @@ function renderDynamicParams(){
     if(!dynamicParams) return;
     const keepOpen = openControlState();
     const scrollState = dynamicParamsScrollSnapshot();
-    settings.engine = ['api','volcengine','modelscope','comfy','runninghub'].includes(settings.engine) ? settings.engine : 'api';
-    settings.apiKind = settings.apiKind === 'video' ? 'video' : 'image';
+    settings.engine = ['api','volcengine','modelscope'].includes(settings.engine) ? settings.engine : 'api';
     clearVolcengineSelectionOutsideVolcengine(settings);
     engineSelect.value = settings.engine;
-    syncApiKindToggleVisibility();
-    if(settings.engine === 'api'){
-        if(settings.apiKind === 'video') renderApiVideoParams();
-        else renderApiParams();
-    }
-    else if(settings.engine === 'volcengine'){
-        if(settings.apiKind === 'video') renderVolcengineVideoParams();
-        else renderVolcengineParams();
-    }
-    else if(settings.engine === 'modelscope') renderMsParams();
-    else if(settings.engine === 'runninghub') renderRunningHubParams();
-    else renderComfyParams();
+    if(settings.engine === 'api') renderApiParams();
+    else if(settings.engine === 'volcengine') renderVolcengineParams();
+    else renderMsParams();
     bindDynamicParams();
     restoreOpenControl(keepOpen);
     restoreDynamicParamsScroll(scrollState);
@@ -2914,27 +2477,6 @@ function renderJimengUpscaleControl(){
         </div>
     </div>`;
 }
-function renderApiVideoParams(){
-    const providers = videoApiProviders();
-    if(!settings.videoProvider || !providers.some(p => p.id === settings.videoProvider)) settings.videoProvider = providers[0]?.id || 'comfly';
-    const models = filterJimengVideoModels(providerVideoModels(settings.videoProvider));
-    if(!settings.videoModel || !models.includes(settings.videoModel)) settings.videoModel = models[0] || 'veo3-fast';
-    dynamicParams.innerHTML = `
-        ${renderVideoProviderControl(providers)}
-        ${renderVideoModelControl(models)}
-        ${renderVideoResolutionControl()}
-        ${renderVideoAspectControl()}
-        ${renderVideoDurationControl()}
-        ${renderVideoToggleControl('videoEnhancePrompt', tr('smart.videoEnhancePrompt'))}
-        ${renderVideoToggleControl('videoEnableUpsample', tr('smart.videoUpsample'))}
-        ${renderVideoToggleControl('videoGenerateAudio', tr('smart.videoGenerateAudio'))}
-        ${renderVideoToggleControl('videoCameraFixed', tr('smart.videoCameraFixed'))}
-        ${renderVideoToggleControl('videoWatermark', tr('smart.videoWatermark'))}
-        ${renderVideoToggleControl('videoMultimodal', tr('smart.videoMultimodal'))}
-        ${renderVideoToggleControl('videoUseFrameRoles', tr('smart.videoUseFrameRoles'))}
-        ${isJimengProviderId(settings.videoProvider) ? '' : renderVideoTrustedAssetControl()}
-    `;
-}
 function renderVolcengineParams(){
     const provider = volcengineProvider();
     const providers = [provider];
@@ -2951,110 +2493,6 @@ function renderVolcengineParams(){
         ${renderCountVisualControl()}
     `;
 }
-function renderVolcengineVideoParams(){
-    const provider = volcengineProvider();
-    const providers = [provider];
-    const models = volcengineVideoModels();
-    settings.videoProvider = 'volcengine';
-    if(!settings.videoModel || !models.includes(settings.videoModel)) settings.videoModel = models[0] || 'seedance-1.0-pro';
-    dynamicParams.innerHTML = `
-        ${renderVideoProviderControl(providers)}
-        ${renderVideoModelControl(models)}
-        ${renderVideoResolutionControl()}
-        ${renderVideoAspectControl()}
-        ${renderVideoDurationControl()}
-        ${renderVideoToggleControl('videoEnhancePrompt', tr('smart.videoEnhancePrompt'))}
-        ${renderVideoToggleControl('videoEnableUpsample', tr('smart.videoUpsample'))}
-        ${renderVideoToggleControl('videoGenerateAudio', tr('smart.videoGenerateAudio'))}
-        ${renderVideoToggleControl('videoCameraFixed', tr('smart.videoCameraFixed'))}
-        ${renderVideoToggleControl('videoWatermark', tr('smart.videoWatermark'))}
-        ${renderVideoToggleControl('videoMultimodal', tr('smart.videoMultimodal'))}
-        ${renderVideoToggleControl('videoUseFrameRoles', tr('smart.videoUseFrameRoles'))}
-        ${renderVideoTrustedAssetControl()}
-    `;
-}
-function renderRunningHubParams(){
-    const ref = selectedRunningHubRef();
-    const fields = rhActiveFields();
-    settings.rhPayment = settings.rhPayment === 'wallet' ? 'wallet' : 'free';
-    settings.rhParams = settings.rhParams || {};
-    settings.rhRandomActive = settings.rhRandomActive || {};
-    if(!ref){
-        dynamicParams.innerHTML = `<div class="muted-note">${escapeHtml(tr('smart.rhNeedConfig'))}</div>`;
-        return;
-    }
-    if(ref.kind === 'model'){
-        settings.provider_id = 'runninghub';
-        settings.model = ref.id;
-        normalizeApiSizeSettings('');
-        dynamicParams.innerHTML = `
-            ${renderRhConfigControl(ref)}
-            ${renderSizePickerControl('', true)}
-            ${renderQualityControl()}
-            ${renderCountVisualControl()}
-        `;
-        return;
-    }
-    const mediaFields = fields.filter(f => ['image','video','audio'].includes(rhFieldRole(f))).length;
-    const promptFields = fields.filter(f => rhFieldRole(f) === 'prompt').length;
-    dynamicParams.innerHTML = `
-        ${renderRhConfigControl(ref)}
-        ${renderRhPaymentControl()}
-        ${renderRhMachineControl()}
-        <div class="rh-mini-summary">${escapeHtml(mediaFields)} 素材 · ${escapeHtml(promptFields)} 提示词</div>
-        ${fields.length ? fields.filter(f => !['image','video','audio','prompt'].includes(rhFieldRole(f))).map(renderRhSettingField).join('') : `<div class="muted-note">${escapeHtml(tr('smart.rhNeedFields'))}</div>`}
-    `;
-}
-function renderRhConfigControl(ref){
-    const models = runningHubEntries('model');
-    const apps = runningHubEntries('app');
-    const workflows = runningHubEntries('workflow');
-    const selected = ref ? runningHubEntryKey(ref.kind, ref.id) : '';
-    const groupHtml = (kind, entries, label) => entries.length ? `
-        <div class="model-list-label rh-list-label">${escapeHtml(label)}<span class="count">${entries.length}</span></div>
-        ${entries.map(entry => {
-            const id = runningHubEntryId(entry, kind);
-            const key = runningHubEntryKey(kind, id);
-            const icon = kind === 'workflow' ? 'workflow' : kind === 'model' ? 'box' : 'sparkles';
-            return `<button type="button" class="direct-option rh-entry-option ${key === selected ? 'active' : ''}" data-smart-param="rhConfigKey" data-smart-value="${escapeHtml(key)}"><i data-lucide="${icon}"></i><span>${escapeHtml(runningHubEntryLabel(entry, kind))}</span></button>`;
-        }).join('')}
-    ` : '';
-    return `<div class="smart-control rh-config-control">
-        <button class="smart-pill" type="button"><i data-lucide="workflow"></i><span class="sub">${escapeHtml(ref ? runningHubEntryLabel(ref.entry, ref.kind) : tr('smart.rhConfig'))}</span><i data-lucide="chevron-down" class="pill-caret"></i></button>
-        <div class="smart-popover compact-popover rh-picker-popover">
-            <div class="smart-popover-title">${escapeHtml(tr('smart.rhConfig'))}</div>
-            <div class="model-list rh-config-list">
-                ${groupHtml('model', models, '模型 API')}${groupHtml('app', apps, 'AI 应用')}${groupHtml('workflow', workflows, '工作流') || ''}
-            </div>
-        </div>
-    </div>`;
-}
-function renderRhPaymentControl(){
-    const value = settings.rhPayment === 'wallet' ? 'wallet' : 'free';
-    const labels = {free:tr('smart.rhFreeKey'), wallet:tr('smart.rhWalletKey')};
-    return `<div class="smart-control rh-payment-control">
-        <button class="smart-pill" type="button"><i data-lucide="key-round"></i><span>${escapeHtml(labels[value])}</span><i data-lucide="chevron-down" class="pill-caret"></i></button>
-        <div class="smart-popover compact-popover rh-picker-popover">
-            <div class="smart-popover-title">${escapeHtml(tr('smart.rhKey'))}</div>
-            <div class="model-list">
-                ${Object.entries(labels).map(([key, label]) => `<button type="button" class="direct-option ${key === value ? 'active' : ''}" data-smart-param="rhPayment" data-smart-value="${escapeHtml(key)}"><span>${escapeHtml(label)}</span></button>`).join('')}
-            </div>
-        </div>
-    </div>`;
-}
-function renderRhMachineControl(){
-    const value = settings.rhInstanceType === 'plus' ? 'plus' : '';
-    const labels = {'':'24G', plus:'48G'};
-    return `<div class="smart-control rh-machine-control">
-        <button class="smart-pill" type="button"><i data-lucide="cpu"></i><span>${escapeHtml(labels[value])}</span><i data-lucide="chevron-down" class="pill-caret"></i></button>
-        <div class="smart-popover compact-popover rh-picker-popover">
-            <div class="smart-popover-title">${escapeHtml(tr('smart.rhMachine'))}</div>
-            <div class="model-list">
-                ${Object.entries(labels).map(([key, label]) => `<button type="button" class="direct-option ${key === value ? 'active' : ''}" data-smart-param="rhInstanceType" data-smart-value="${escapeHtml(key)}"><span>${escapeHtml(label)}</span></button>`).join('')}
-            </div>
-        </div>
-    </div>`;
-}
 function renderMsParams(){
     settings.msgenModel = MS_GEN_MODELS[settings.msgenModel] ? settings.msgenModel : 'zimage';
     if(!settings.msCustomModel) settings.msCustomModel = modelscopeImageModels()[0] || 'Tongyi-MAI/Z-Image-Turbo';
@@ -3066,48 +2504,6 @@ function renderMsParams(){
         ${renderCountVisualControl()}
     `;
 }
-function renderComfyParams(){
-    settings.comfyMode = ['text','enhance','edit','custom'].includes(settings.comfyMode) ? settings.comfyMode : 'text';
-    const modeOptions = [
-        ['text', tr('canvas.comfyModeText') || '文生图'],
-        ['enhance', tr('canvas.comfyModeEnhance') || '图片增强'],
-        ['edit', tr('canvas.comfyModeEdit') || '图片编辑'],
-        ['custom', tr('canvas.comfyModeCustom') || '自定义']
-    ];
-    if(settings.comfyMode === 'custom'){
-        if(!settings.comfyWorkflow || !comfyWorkflows.some(w => w.name === settings.comfyWorkflow)) settings.comfyWorkflow = comfyWorkflows[0]?.name || '';
-        if(settings.comfyWorkflow && !comfyWorkflowCache[settings.comfyWorkflow]) ensureComfyWorkflow(settings.comfyWorkflow).then(renderDynamicParams);
-    }
-    let html = '';
-    if(settings.comfyMode === 'text'){
-        html += `<div class="num-compact"><span class="num-label">${escapeHtml(tr('smart.width'))}</span><input type="number" data-param="width" value="${Number(settings.width || 1024)}"></div>
-            <div class="num-compact"><span class="num-label">${escapeHtml(tr('smart.height'))}</span><input type="number" data-param="height" value="${Number(settings.height || 1024)}"></div>`;
-    } else if(settings.comfyMode === 'enhance'){
-        html += `<div class="num-compact"><span class="num-label">${escapeHtml(tr('smart.strength'))}</span><input type="number" min="0.1" max="1" step="0.05" data-param="enhanceStrength" value="${Number(settings.enhanceStrength ?? 0.5)}"></div>
-            <button type="button" class="setting-check ${settings.enhanceUpscale ? 'active' : ''}" data-toggle-param="enhanceUpscale"><span class="check-box"></span><span>${escapeHtml(tr('smart.superResolution'))}</span></button>
-            ${settings.enhanceUpscale ? renderUpscalePill('enhanceUpscaleRes', Number(settings.enhanceUpscaleRes || 2048)) : ''}`;
-    } else if(settings.comfyMode === 'edit'){
-        html += `<button type="button" class="setting-check ${settings.editUpscale ? 'active' : ''}" data-toggle-param="editUpscale"><span class="check-box"></span><span>${escapeHtml(tr('smart.superResolution'))}</span></button>
-            ${settings.editUpscale ? renderUpscalePill('editUpscaleRes', Number(settings.editUpscaleRes || 2048)) : ''}`;
-    } else {
-        const wf = comfyWorkflowCache[settings.comfyWorkflow];
-        const fields = (wf?.config?.fields || []).filter(f => comfyFieldKind(f) === 'setting');
-        html += renderComfyWorkflowControl();
-        html += fields.length ? fields.map(renderComfySettingField).join('') : (settings.comfyWorkflow ? '' : `<div class="muted-note">${escapeHtml(tr('smart.noWorkflow'))}</div>`);
-    }
-    dynamicParams.innerHTML = `
-        <div class="smart-control comfy-mode-control">
-            <button class="smart-pill" type="button"><i data-lucide="workflow"></i><span>${escapeHtml(modeOptions.find(([v]) => v === settings.comfyMode)?.[1] || 'ComfyUI')}</span></button>
-            <div class="smart-popover compact-popover">
-                <div class="smart-popover-title">${escapeHtml(tr('smart.comfyMode'))}</div>
-                <div class="model-list">
-                    ${modeOptions.map(([value, label]) => `<button type="button" class="direct-option ${value === settings.comfyMode ? 'active' : ''}" data-smart-param="comfyMode" data-smart-value="${escapeHtml(value)}"><span>${escapeHtml(label)}</span></button>`).join('')}
-                </div>
-            </div>
-        </div>
-        ${html}
-    `;
-}
 function renderUpscalePill(paramKey, current){
     const opts = [2048, 4096];
     const labels = {2048:'2X / 2048', 4096:'4X / 4096'};
@@ -3117,20 +2513,6 @@ function renderUpscalePill(paramKey, current){
             <div class="smart-popover-title">${escapeHtml(tr('smart.upscaleTarget'))}</div>
             <div class="model-list">
                 ${opts.map(v => `<button type="button" class="direct-option ${v === current ? 'active' : ''}" data-smart-param="${escapeHtml(paramKey)}" data-smart-value="${v}"><span>${escapeHtml(labels[v])}</span></button>`).join('')}
-            </div>
-        </div>
-    </div>`;
-}
-function renderComfyWorkflowControl(){
-    if(!comfyWorkflows.length) return `<div class="muted-note">${escapeHtml(tr('smart.noWorkflow'))}</div>`;
-    const current = comfyWorkflows.find(w => w.name === settings.comfyWorkflow) || comfyWorkflows[0];
-    const label = current?.title || (current?.name || '').replace('.json','') || tr('smart.workflow');
-    return `<div class="smart-control workflow-control">
-        <button class="smart-pill" type="button"><i data-lucide="layers"></i><span class="sub">${escapeHtml(label)}</span></button>
-        <div class="smart-popover compact-popover">
-            <div class="smart-popover-title">${escapeHtml(tr('smart.workflow'))}</div>
-            <div class="model-list">
-                ${comfyWorkflows.map(w => `<button type="button" class="direct-option ${w.name === settings.comfyWorkflow ? 'active' : ''}" data-smart-param="comfyWorkflow" data-smart-value="${escapeHtml(w.name)}"><span>${escapeHtml(w.title || w.name.replace('.json',''))}</span></button>`).join('')}
             </div>
         </div>
     </div>`;
@@ -3220,14 +2602,6 @@ function ratioIconClass(value){
     if(value === 'custom') return 'r-custom';
     return '';
 }
-function videoAspectIconClass(value){
-    if(value === '16:9' || value === '21:9') return 'r-wide';
-    if(value === '9:16' || value === '9:21') return 'r-story';
-    if(value === '4:3') return 'r-landscape43';
-    if(value === '3:4') return 'r-portrait43';
-    if(value === 'keep_ratio' || value === 'adaptive') return 'r-source';
-    return '';
-}
 function renderProviderControl(providers){
     const current = (providers || []).find(p => p.id === settings.provider_id) || apiProviderById(settings.provider_id);
     return `<div class="smart-control provider-control">
@@ -3303,7 +2677,7 @@ function renderResolutionControl(prefix=''){
     const resKey = prefix ? `${prefix}Resolution` : 'resolution';
     const options = (!prefix && settings.engine === 'api') ? ['auto','1k','2k','4k','custom'] : ['1k','2k','4k','custom'];
     const current = settings[resKey] || ((!prefix && settings.engine === 'api') ? defaultSmartApiResolution(settings.model) : '1k');
-    const allowAuto = !prefix && settings.engine === 'api' && settings.apiKind !== 'video' && isGptImageAutoSizeModel(settings.model);
+    const allowAuto = !prefix && settings.engine === 'api' && isGptImageAutoSizeModel(settings.model);
     return `<div class="smart-control resolution-control">
         <button class="smart-pill" type="button"><i data-lucide="monitor"></i><span>${escapeHtml(resolutionLabel(prefix))}</span></button>
         <div class="smart-popover compact-popover">
@@ -3351,7 +2725,7 @@ function renderSizePickerControl(prefix='', includeSource=false){
     const currentRes = settings[resKey] || ((!prefix && settings.engine === 'api') ? defaultSmartApiResolution(settings.model) : '1k');
     const currentRatio = settings[ratioKey] || 'square';
     const currentCustomRatio = settings[customRatioKey] || (currentRatio === 'source' ? sourceImageRatioLabel(prefix) : '');
-    const allowAuto = !prefix && settings.engine === 'api' && settings.apiKind !== 'video' && isGptImageAutoSizeModel(settings.model);
+    const allowAuto = !prefix && settings.engine === 'api' && isGptImageAutoSizeModel(settings.model);
     const ratios = [
         ['square','1:1','正方形'], ['portrait','2:3','竖图'], ['landscape','3:2','横图'], ['portrait43','3:4','竖图'], ['landscape43','4:3','横图'],
         ['story','9:16','竖屏'], ['wide','16:9','宽屏'], ['ultrawide','21:9','超宽'], ['ultratall','9:21','超竖'],
@@ -3458,43 +2832,6 @@ function renderCustomSizeControls(prefix=''){
     return `<input type="number" data-param="${wKey}" value="${escapeHtml(settings[wKey] || '')}" placeholder="宽度">
             <input type="number" data-param="${hKey}" value="${escapeHtml(settings[hKey] || '')}" placeholder="高度">`;
 }
-function renderComfySettingField(field){
-    const value = comfyParamValue(field);
-    const label = field.name || field.input || field.id;
-    if(field.type === 'boolean') return `<button type="button" class="setting-check ${value ? 'active' : ''}" data-comfy-bool="${escapeHtml(field.id)}"><span class="check-box"></span><span>${escapeHtml(label)}</span></button>`;
-    if(field.type === 'dropdown'){
-        const opts = field.options || [];
-        const curLabel = String(value || opts[0] || label);
-        return `<div class="smart-control comfy-dropdown-control" title="${escapeHtml(label)}">
-            <button class="smart-pill" type="button"><span class="sub">${escapeHtml(curLabel)}</span></button>
-            <div class="smart-popover compact-popover">
-                <div class="smart-popover-title">${escapeHtml(label)}</div>
-                <div class="model-list">
-                    ${opts.map(o => `<button type="button" class="direct-option ${String(o) === String(value) ? 'active' : ''}" data-comfy-pick="${escapeHtml(field.id)}" data-comfy-value="${escapeHtml(o)}"><span>${escapeHtml(o)}</span></button>`).join('') || `<div class="muted-note">${escapeHtml(tr('smart.noOption'))}</div>`}
-                </div>
-            </div>
-        </div>`;
-    }
-    if(field.type === 'textarea') return `<textarea class="wide" data-comfy-param="${escapeHtml(field.id)}" placeholder="${escapeHtml(label)}" style="width:160px">${escapeHtml(value)}</textarea>`;
-    const type = (field.type === 'number' || field.type === 'slider') ? 'number' : 'text';
-    const min = field.min !== undefined ? ` min="${escapeHtml(field.min)}"` : '';
-    const max = field.max !== undefined ? ` max="${escapeHtml(field.max)}"` : '';
-    const step = field.step !== undefined ? ` step="${escapeHtml(field.step)}"` : '';
-    const isNumeric = type === 'number';
-    const inputHtml = `<input type="${type}" data-comfy-param="${escapeHtml(field.id)}" value="${escapeHtml(value)}"${min}${max}${step}>`;
-    if(isNumeric && comfyRandomEnabledField(field)){
-        const active = smartComfyRandomActive(field.id);
-        return `<div class="num-with-dice" title="${escapeHtml(label)}">
-            <span class="num-label">${escapeHtml(label)}</span>
-            ${inputHtml}
-            <button type="button" class="dice-btn ${active ? 'active' : ''}" data-comfy-random="${escapeHtml(field.id)}" title="${escapeHtml(active ? tr('smart.diceOn') : tr('smart.diceOff'))}"><i data-lucide="dice-5"></i></button>
-        </div>`;
-    }
-    if(isNumeric){
-        return `<div class="num-compact" title="${escapeHtml(label)}"><span class="num-label">${escapeHtml(label)}</span>${inputHtml}</div>`;
-    }
-    return `<div class="num-compact" title="${escapeHtml(label)}"><span class="num-label">${escapeHtml(label)}</span>${inputHtml}</div>`;
-}
 const RH_KNOWN_FIELD_OPTIONS = {
     aspectRatio:['1:1','16:9','9:16','4:3','3:4','4:5','5:4','3:2','2:3','21:9','9:21'],
     aspect_ratio:['1:1','16:9','9:16','4:3','3:4','4:5','5:4','3:2','2:3','21:9','9:21'],
@@ -3505,214 +2842,10 @@ const RH_KNOWN_FIELD_OPTIONS = {
     scheduler:['normal','karras','exponential','sgm_uniform','simple','ddim_uniform'],
     sampler:['euler','euler_ancestral','heun','dpm_2','dpm_2_ancestral','lms','dpmpp_2m','dpmpp_sde','ddim','uni_pc']
 };
-function rhParamKey(nodeId, fieldName){
-    return `${nodeId ?? ''}::${fieldName ?? ''}`;
-}
-function rhFieldKind(field){
-    const type = String(field?.fieldType || '').trim().toUpperCase();
-    if(type === 'IMAGE') return 'image';
-    if(type === 'VIDEO') return 'video';
-    if(type === 'AUDIO') return 'audio';
-    if(type === 'SLIDER') return 'slider';
-    if(['NUMBER','FLOAT','INTEGER','INT'].includes(type)) return 'number';
-    if(['BOOLEAN','BOOL'].includes(type)) return 'boolean';
-    const key = `${field?.fieldName || ''} ${field?.fieldValue || ''}`.toLowerCase();
-    if(/\b(image|img|mask|photo|picture)\b/.test(key) || /\.(png|jpe?g|webp|gif|bmp)(\?|$)/i.test(key)) return 'image';
-    if(/\b(video|movie|mp4)\b/.test(key) || /\.(mp4|webm|mov|m4v|mkv)(\?|$)/i.test(key)) return 'video';
-    if(/\b(audio|sound|music|voice)\b/.test(key) || /\.(mp3|wav|ogg|m4a|flac|aac)(\?|$)/i.test(key)) return 'audio';
-    return 'text';
-}
-function rhFieldRole(field){
-    const kind = rhFieldKind(field);
-    if(['image','video','audio','number','slider','boolean'].includes(kind)) return kind;
-    const text = `${field?.fieldName || ''} ${field?.label || ''} ${field?.group || ''}`.toLowerCase();
-    if(/prompt|positive|negative|text|caption|description|关键词|提示词|正向|负向/.test(text)) return 'prompt';
-    return 'text';
-}
-function rhExtractFieldOptions(field){
-    const candidates = [field?.fieldData, field?.options, field?.list, field?.values, field?.enum, field?.choices, field?.items, field?.selectOptions, field?.dropdown];
-    for(const candidate of candidates){
-        if(!Array.isArray(candidate) || !candidate.length) continue;
-        if(candidate.every(x => ['string','number'].includes(typeof x))) return candidate.map(String);
-        if(candidate.every(x => x && typeof x === 'object' && ('value' in x || 'label' in x || 'name' in x))){
-            return candidate.map(x => x.value ?? x.label ?? x.name).filter(v => v !== undefined && v !== null).map(String);
-        }
-    }
-    const name = String(field?.fieldName || '').trim();
-    if(name){
-        if(RH_KNOWN_FIELD_OPTIONS[name]) return RH_KNOWN_FIELD_OPTIONS[name].map(String);
-        const hit = Object.keys(RH_KNOWN_FIELD_OPTIONS).find(k => k.toLowerCase() === name.toLowerCase());
-        if(hit) return RH_KNOWN_FIELD_OPTIONS[hit].map(String);
-    }
-    return null;
-}
-function rhDefaultValue(field){
-    let value = field?.fieldValue;
-    if(Array.isArray(value)) value = value[0];
-    if(value === undefined || value === null || typeof value === 'object') return '';
-    return String(value);
-}
-function rhIsWorkflowLinkValue(value){
-    return Array.isArray(value) && value.length === 2 && typeof value[0] === 'string' && Number.isInteger(value[1]);
-}
-function rhRandomEnabled(field){
-    return rhFieldKind(field) === 'number' && field?.random_enabled === true;
-}
-function smartRhRandomActive(key){
-    return smartRhRandomActiveFor(settings, key);
-}
-function smartRhRandomActiveFor(sourceSettings=settings, key){
-    sourceSettings = sourceSettings || settings;
-    sourceSettings.rhRandomActive = sourceSettings.rhRandomActive || {};
-    return sourceSettings.rhRandomActive[key] !== false;
-}
-function toggleSmartRhRandom(key){
-    const field = rhActiveFields().find(f => rhParamKey(f.nodeId, f.fieldName) === key);
-    if(!rhRandomEnabled(field)) return;
-    settings.rhRandomActive = settings.rhRandomActive || {};
-    settings.rhRandomActive[key] = !smartRhRandomActive(key);
-    persistActiveSmartSettings();
-    renderDynamicParams();
-    scheduleSave();
-}
-function smartRhRandomValue(field){
-    return smartComfyRandomValue({
-        input:field.fieldName,
-        name:field.label || field.fieldName,
-        min:field.min,
-        max:field.max,
-        step:field.step,
-        type:'number'
-    });
-}
-function rhParamValue(field, media=null, sourceSettings=settings, fields=null, randomValues=smartRhRandomValues){
-    sourceSettings = sourceSettings || settings;
-    sourceSettings.rhParams = sourceSettings.rhParams || {};
-    const key = rhParamKey(field.nodeId, field.fieldName);
-    const param = sourceSettings.rhParams[key];
-    const kind = rhFieldKind(field);
-    if(['image','video','audio'].includes(kind)){
-        const idx = rhFieldIndexes(fields || rhActiveFields(sourceSettings))[key] || 0;
-        const up = media?.[kind]?.[idx]?.url || '';
-        if(rhCurrentKind(sourceSettings) === 'workflow' && kind === 'image' && field.required !== true && !up) return '';
-        return up || param?.value || rhDefaultValue(field);
-    }
-    if(rhRandomEnabled(field) && smartRhRandomActiveFor(sourceSettings, key)){
-        if(randomValues[key] === undefined) randomValues[key] = smartRhRandomValue(field);
-        return randomValues[key];
-    }
-    if(rhFieldRole(field) === 'prompt') return param?.value ?? (media?.prompt || rhDefaultValue(field));
-    return param?.value ?? rhDefaultValue(field);
-}
-function rhUserParamValue(field){
-    settings.rhParams = settings.rhParams || {};
-    const key = rhParamKey(field.nodeId, field.fieldName);
-    return settings.rhParams[key]?.value ?? '';
-}
-function rhPromptPlaceholder(field){
-    return rhDefaultValue(field) || field?.label || field?.fieldName || tr('smart.promptPlaceholder');
-}
-function rhDefaultPromptSuggestion(){
-    if(settings.engine !== 'runninghub') return '';
-    const fields = rhActiveFields().filter(field => rhFieldRole(field) === 'prompt');
-    for(const field of fields){
-        const value = rhDefaultValue(field).trim();
-        if(value) return value;
-    }
-    return '';
-}
 function updatePromptPlaceholder(){
     if(!promptInput) return;
     const suggestion = rhDefaultPromptSuggestion();
     promptInput.dataset.placeholder = suggestion || tr('smart.promptPlaceholder');
-}
-function rhFieldIndexes(fields){
-    const counters = {image:0, video:0, audio:0};
-    const map = {};
-    sortRunningHubFields(fields).forEach(field => {
-        const kind = rhFieldKind(field);
-        if(['image','video','audio'].includes(kind)){
-            map[rhParamKey(field.nodeId, field.fieldName)] = counters[kind]++;
-        }
-    });
-    return map;
-}
-async function ensureRunningHubWorkflow(workflowId, options={}){
-    workflowId = String(workflowId || '').trim();
-    if(!workflowId) return null;
-    if(runningHubWorkflowCache[workflowId]) return runningHubWorkflowCache[workflowId];
-    const res = await fetch(`/api/runninghub/workflows/${encodeURIComponent(workflowId)}`);
-    if(!res.ok){
-        if(options.fetchRemote !== true) {
-            delete runningHubWorkflowCache[workflowId];
-            return null;
-        }
-        const entry = runningHubEntries('workflow').find(item => runningHubEntryId(item, 'workflow') === workflowId);
-        const remoteRes = await fetch('/api/runninghub/workflows/fetch', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-                workflowId,
-                title:runningHubEntryLabel(entry, 'workflow') || workflowId,
-                description:entry?.note || ''
-            })
-        }).catch(() => null);
-        if(!remoteRes?.ok){
-            delete runningHubWorkflowCache[workflowId];
-            return null;
-        }
-        const remoteData = await remoteRes.json().catch(() => null);
-        const fetched = remoteData?.data;
-        if(!fetched || !Array.isArray(fetched.fields)){
-            delete runningHubWorkflowCache[workflowId];
-            return null;
-        }
-        runningHubWorkflowCache[workflowId] = {
-            workflowId,
-            title:fetched.title || runningHubEntryLabel(entry, 'workflow') || workflowId,
-            description:fetched.description || entry?.note || '',
-            fields:fetched.fields || [],
-            workflowJson:fetched.workflowJson || {},
-            optionalImageMode:entry?.optionalImageMode || 'prune-workflow',
-            raw:fetched.raw || {}
-        };
-        return runningHubWorkflowCache[workflowId];
-    }
-    const data = await res.json();
-    runningHubWorkflowCache[workflowId] = data.workflow || null;
-    return runningHubWorkflowCache[workflowId];
-}
-async function currentRunningHubWorkflowConfig(sourceSettings=settings){
-    const ref = selectedRunningHubRef(sourceSettings);
-    if(ref?.kind !== 'workflow') return null;
-    if(Array.isArray(sourceSettings?.rhFields) && sourceSettings.rhFields.length){
-        return {
-            ...(ref.entry || {}),
-            workflowId:ref.id,
-            fields:sourceSettings.rhFields,
-            optionalImageMode:sourceSettings.rhOptionalImageMode || ref.entry?.optionalImageMode || 'prune-workflow',
-            workflowJson:rhWorkflowJsonFromSources(sourceSettings.rhWorkflowJson, ref.entry?.workflowJson, ref.entry?.raw?.workflowJson, ref.entry?.raw?.prompt)
-        };
-    }
-    const cached = await ensureRunningHubWorkflow(ref.id).catch(() => null);
-    return {
-        ...(ref.entry || {}),
-        ...(cached || {}),
-        workflowId:ref.id,
-        fields:Array.isArray(cached?.fields) && cached.fields.length ? cached.fields : rhEntryFields(ref.entry),
-        optionalImageMode:ref.entry?.optionalImageMode || cached?.optionalImageMode || 'prune-workflow',
-        workflowJson:rhWorkflowJsonFromSources(cached?.workflowJson, ref.entry?.workflowJson, ref.entry?.raw?.workflowJson, ref.entry?.raw?.prompt)
-    };
-}
-function rhMediaForRun(prompt, refs){
-    const cleanRefs = (refs || []).filter(ref => ref?.url);
-    return {
-        refs:cleanRefs,
-        image:imageRefsOnly(cleanRefs),
-        video:videoRefsOnly(cleanRefs),
-        audio:audioRefsOnly(cleanRefs),
-        prompt:String(prompt || '').trim()
-    };
 }
 function tempShUploadedUrlFor(url, sourceSettings=settings){
     const source = String(url || '');
@@ -3733,9 +2866,6 @@ function applyUploadedUrlsToSmartRefs(refs, sourceSettings=settings){
         const url = tempShUploadedUrlFor(sourceUrl, sourceSettings);
         return url && url !== ref.url ? {...ref, url, originalLocalUrl:ref.originalLocalUrl || ref.url} : ref;
     });
-}
-function manualSmartVideoLink(sourceSettings=settings){
-    return ((sourceSettings || settings).videoTempShLinks || []).find(item => item?.manual === true && item?.url) || null;
 }
 function manualSmartMediaLinks(sourceSettings=settings){
     return ((sourceSettings || settings).videoTempShLinks || []).filter(item => item?.manual === true && item?.url);
@@ -3768,9 +2898,6 @@ function currentSmartMediaLinks(node=null){
         return uploaded && uploaded !== sourceUrl ? uploaded : '';
     }).filter(Boolean);
 }
-function clearManualSmartVideoUrl(){
-    settings.videoTempShLinks = (settings.videoTempShLinks || []).filter(item => item?.manual !== true);
-}
 function splitManualMediaUrls(text){
     return String(text || '')
         .split(/[\s,，]+/)
@@ -3799,289 +2926,11 @@ async function uploadMediaRefToCloud(ref){
     ];
     return uploadedUrl;
 }
-function applyManualVideoUrlToSmartRef(ref, manualUrl){
-    if(!manualUrl) return;
-    const sourceUrl = mediaRefSourceUrl(ref) || manualUrl;
-    settings.videoTempShLinks = [
-        ...(settings.videoTempShLinks || []).filter(item => item?.source !== sourceUrl),
-        {source:sourceUrl, url:manualUrl, manual:true}
-    ];
-}
-async function setCurrentSmartManualVideoUrl(){
-    const node = activeSettingsSubject();
-    if(!node) return '';
-    savePromptDraftForCurrent();
-    const refs = currentUploadMediaRefs(node);
-    const firstLocal = refs.find(ref => ref?.url && !isRemoteVideoReferenceUrl(ref.url));
-    const firstAny = firstLocal || refs[0] || null;
-    const linkedUrls = currentSmartMediaLinks(node);
-    const currentLinks = linkedUrls.length ? linkedUrls : (firstAny ? [tempShUploadedUrlFor(mediaRefSourceUrl(firstAny))] : []);
-    const value = await openAssetNameDialog({
-        title:refs.length > 1 ? `输入 ${refs.length} 个媒体网址 / 火山素材 URI` : '输入媒体网址 / 火山素材 URI',
-        value:currentLinks.filter(isRemoteVideoReferenceUrl).join('\n'),
-        placeholder:refs.length > 1 ? '每行一个链接，按图1/图2顺序对应' : 'https://example.com/media 或 asset://asset-xxx',
-        cancelValue:null,
-        multiline:refs.length > 1
-    });
-    if(value === null) return '';
-    const urls = splitManualMediaUrls(value);
-    if(!urls.length){
-        clearManualSmartVideoUrl();
-        persistActiveSmartSettings();
-        scheduleSave();
-        render();
-        toast('已清除手动网址');
-        return '';
-    }
-    const invalid = urls.find(url => !isRemoteVideoReferenceUrl(url));
-    if(invalid){
-        toast('请输入 http/https 媒体网址或 asset:// 火山素材 URI');
-        return '';
-    }
-    clearManualSmartVideoUrl();
-    const targets = refs.length ? refs : [firstAny].filter(Boolean);
-    urls.forEach((url, index) => {
-        const target = targets[index] || targets[targets.length - 1] || {url};
-        applyManualVideoUrlToSmartRef(target, url);
-    });
-    persistActiveSmartSettings();
-    scheduleSave();
-    render();
-    toast(`已设置 ${urls.length} 个媒体网址`);
-    return urls[0] || '';
-}
-async function uploadCurrentSmartVideosToCloud(){
-    const node = activeSettingsSubject();
-    if(!node) return [];
-    savePromptDraftForCurrent();
-    const refs = currentUploadMediaRefs(node);
-    const localRefs = refs.filter(ref => {
-        const sourceUrl = ref?.sourceUrl || ref?.originalLocalUrl || ref?.url || '';
-        if(!sourceUrl) return false;
-        const uploaded = tempShUploadedUrlFor(sourceUrl);
-        return uploaded !== sourceUrl || !isRemoteVideoReferenceUrl(sourceUrl);
-    });
-    if(!localRefs.length){
-        toast('当前输入图片或视频已是云端链接');
-        return [];
-    }
-    const btn = dynamicParams?.querySelector('[data-trusted-source="cloud"]') || inputThumbsRow?.querySelector('[data-temp-sh-upload-video]');
-    if(btn) btn.disabled = true;
-    toast(`正在上传 ${localRefs.length} 个媒体文件到云端...`);
-    try {
-        const urls = [];
-        for(const ref of localRefs){
-            urls.push(await uploadMediaRefToCloud(ref));
-        }
-        toast(`云端上传完成：${urls.length} 个媒体文件`);
-        return urls;
-    } finally {
-        if(btn) btn.disabled = false;
-    }
-}
-function rhRequiredLabel(field){
-    return field?.label || field?.fieldName || `#${field?.nodeId || ''}`;
-}
-function rhPruneWorkflowForMissingFields(workflowJson, missingFields){
-    if(!workflowJson || typeof workflowJson !== 'object' || !missingFields?.length) return null;
-    const workflow = JSON.parse(JSON.stringify(workflowJson));
-    const removeIds = new Set();
-    missingFields.forEach(field => {
-        const node = workflow[String(field.nodeId)];
-        if(node?.inputs && Object.prototype.hasOwnProperty.call(node.inputs, field.fieldName)){
-            delete node.inputs[field.fieldName];
-        }
-        if(node && (!node.inputs || !Object.keys(node.inputs).length)){
-            removeIds.add(String(field.nodeId));
-        }
-    });
-    removeIds.forEach(id => delete workflow[id]);
-    Object.values(workflow).forEach(node => {
-        if(!node?.inputs || typeof node.inputs !== 'object') return;
-        Object.entries(node.inputs).forEach(([name, value]) => {
-            if(rhIsWorkflowLinkValue(value) && removeIds.has(String(value[0]))) delete node.inputs[name];
-        });
-    });
-    return workflow;
-}
-function rhApplyNodeInfoListToWorkflow(workflowJson, nodeInfoList){
-    if(!workflowJson || typeof workflowJson !== 'object' || !Object.keys(workflowJson).length) return null;
-    const workflow = JSON.parse(JSON.stringify(workflowJson));
-    (nodeInfoList || []).forEach(item => {
-        const node = workflow[String(item?.nodeId || '')];
-        if(!node?.inputs || typeof node.inputs !== 'object') return;
-        const fieldName = String(item?.fieldName || '');
-        if(!fieldName || !Object.prototype.hasOwnProperty.call(node.inputs, fieldName)) return;
-        node.inputs[fieldName] = item.fieldValue;
-    });
-    return workflow;
-}
-function rhLooksLikeComplexDefault(field){
-    const text = rhDefaultValue(field).trim();
-    if(!/^[{[]/.test(text)) return false;
-    try {
-        const parsed = JSON.parse(text);
-        return parsed && typeof parsed === 'object';
-    } catch(e) {
-        return false;
-    }
-}
-async function rhBuildWorkflowRequestExtras(media, nodeInfoList, sourceSettings=settings){
-    const config = await currentRunningHubWorkflowConfig(sourceSettings);
-    if(!config) return {};
-    const fields = rhActiveFields(sourceSettings);
-    if((config.optionalImageMode || 'prune-workflow') !== 'prune-workflow'){
-        const workflow = rhApplyNodeInfoListToWorkflow(config.workflowJson || {}, nodeInfoList);
-        return workflow ? {workflow} : {};
-    }
-    const indexes = rhFieldIndexes(fields);
-    const missingOptional = [];
-    for(const field of fields){
-        const kind = rhFieldKind(field);
-        if(!['image','video','audio'].includes(kind)) continue;
-        const key = rhParamKey(field.nodeId, field.fieldName);
-        const idx = indexes[key] || 0;
-        const hasInput = Boolean(media[kind]?.[idx]?.url);
-        const kindLabel = kind === 'image' ? '图片' : kind === 'video' ? '视频' : '音频';
-        if(field.required === true && !hasInput) throw new Error(`RunningHub 工作流缺少必选${kindLabel}：${rhRequiredLabel(field)}`);
-        if(field.required !== true && !hasInput) missingOptional.push(field);
-    }
-    if(!missingOptional.length){
-        const workflow = rhApplyNodeInfoListToWorkflow(config.workflowJson || {}, nodeInfoList);
-        return workflow ? {workflow} : {};
-    }
-    missingOptional.forEach(field => {
-        const key = rhParamKey(field.nodeId, field.fieldName);
-        const idx = nodeInfoList.findIndex(item => rhParamKey(item.nodeId, item.fieldName) === key);
-        if(idx >= 0) nodeInfoList.splice(idx, 1);
-    });
-    const workflow = rhApplyNodeInfoListToWorkflow(rhPruneWorkflowForMissingFields(config.workflowJson || {}, missingOptional), nodeInfoList);
-    return workflow ? {workflow} : {};
-}
-async function rhUploadValueIfNeeded(value, sourceSettings=settings){
-    const text = String(value || '').trim();
-    if(!text) return '';
-    if(!/^https?:\/\//i.test(text) && !text.startsWith('/output/') && !text.startsWith('/assets/')) return text;
-    const res = await fetch('/api/runninghub/upload-asset', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({url:text, useWallet:(sourceSettings || settings).rhPayment === 'wallet'})
-    });
-    const data = await res.json();
-    if(!res.ok || data.success === false) throw new Error(data.detail || data.error || tr('smart.rhUploadFailed'));
-    return data.data?.fileName || text;
-}
-async function rhBuildNodeInfoList(media, sourceSettings=settings, randomValues=smartRhRandomValues){
-    const fields = rhActiveFields(sourceSettings);
-    const result = [];
-    const indexes = rhFieldIndexes(fields);
-    const mode = rhCurrentKind(sourceSettings);
-    const explicitParams = sourceSettings?.rhParams || {};
-    for(const field of fields){
-        const kind = rhFieldKind(field);
-        const key = rhParamKey(field.nodeId, field.fieldName);
-        if(mode === 'workflow' && field.sourceFromUpstream === false && !['image','video','audio'].includes(kind)) continue;
-        if(mode === 'workflow' && !Object.prototype.hasOwnProperty.call(explicitParams, key) && rhLooksLikeComplexDefault(field) && !['image','video','audio'].includes(kind) && rhFieldRole(field) !== 'prompt') continue;
-        if(mode === 'workflow' && ['image','video','audio'].includes(kind)){
-            const idx = indexes[key] || 0;
-            if(field.required !== true && !media[kind]?.[idx]?.url) continue;
-        }
-        let value = rhParamValue(field, media, sourceSettings, fields, randomValues);
-        if(rhFieldRole(field) === 'prompt' && !String(value || '').trim()) value = rhDefaultValue(field);
-        if(['image','video','audio'].includes(kind)) value = await rhUploadValueIfNeeded(value, sourceSettings);
-        if(['number','slider'].includes(kind) && String(value ?? '').trim() !== '' && !Number.isNaN(Number(value))) value = Number(value);
-        result.push({nodeId:field.nodeId, fieldName:field.fieldName, fieldValue:value});
-    }
-    return result;
-}
-function renderRhSettingField(field){
-    const key = rhParamKey(field.nodeId, field.fieldName);
-    const kind = rhFieldRole(field);
-    const label = field.label || field.fieldName || 'Field';
-    const value = rhParamValue(field, null);
-    const options = rhExtractFieldOptions(field);
-    if(kind === 'boolean'){
-        const active = String(value).toLowerCase() === 'true';
-        return `<button type="button" class="setting-check ${active ? 'active' : ''}" data-rh-bool="${escapeHtml(key)}"><span class="check-box"></span><span>${escapeHtml(label)}</span></button>`;
-    }
-    if(kind === 'slider'){
-        const min = Number.isFinite(Number(field.min)) ? Number(field.min) : 0;
-        const max = Number.isFinite(Number(field.max)) && Number(field.max) > min ? Number(field.max) : 1;
-        const step = Number.isFinite(Number(field.step)) && Number(field.step) > 0 ? Number(field.step) : 0.01;
-        const numericValue = Number.isFinite(Number(value)) ? Number(value) : min;
-        return `<div class="smart-control rh-slider-control" title="${escapeHtml(label)}">
-            <button class="smart-pill" type="button"><span class="sub">${escapeHtml(label)}</span><span class="rh-slider-pill-value">${escapeHtml(numericValue)}</span></button>
-            <div class="smart-popover compact-popover rh-picker-popover rh-param-popover rh-slider-popover">
-                <div class="smart-popover-title"><span>${escapeHtml(label)}</span><span class="rh-slider-value">${escapeHtml(numericValue)}</span></div>
-                <input type="range" class="smart-range rh-slider-input" data-rh-param="${escapeHtml(key)}" data-rh-type="slider" min="${escapeHtml(min)}" max="${escapeHtml(max)}" step="${escapeHtml(step)}" value="${escapeHtml(numericValue)}">
-            </div>
-        </div>`;
-    }
-    if(options?.length){
-        const curLabel = String(value || options[0] || label);
-        return `<div class="smart-control rh-dropdown-control" title="${escapeHtml(label)}">
-            <button class="smart-pill" type="button"><span class="sub">${escapeHtml(curLabel)}</span><i data-lucide="chevron-down" class="pill-caret"></i></button>
-            <div class="smart-popover compact-popover rh-picker-popover rh-param-popover">
-                <div class="smart-popover-title">${escapeHtml(label)}</div>
-                <div class="model-list rh-param-list">
-                    ${options.map(o => `<button type="button" class="direct-option ${String(o) === String(value) ? 'active' : ''}" data-rh-pick="${escapeHtml(key)}" data-rh-value="${escapeHtml(o)}"><span>${escapeHtml(o)}</span></button>`).join('') || `<div class="muted-note">${escapeHtml(tr('smart.noOption'))}</div>`}
-                </div>
-            </div>
-        </div>`;
-    }
-    const type = kind === 'number' ? 'number' : 'text';
-    const inputHtml = `<input type="${type}" data-rh-param="${escapeHtml(key)}" value="${escapeHtml(value)}">`;
-    if(kind === 'number' && rhRandomEnabled(field)){
-        const active = smartRhRandomActive(key);
-        return `<div class="num-with-dice" title="${escapeHtml(label)}">
-            <span class="num-label">${escapeHtml(label)}</span>
-            ${inputHtml}
-            <button type="button" class="dice-btn ${active ? 'active' : ''}" data-rh-random="${escapeHtml(key)}" title="${escapeHtml(active ? tr('smart.diceOn') : tr('smart.diceOff'))}"><i data-lucide="dice-5"></i></button>
-        </div>`;
-    }
-    return `<div class="num-compact ${type === 'text' ? 'rh-text-param' : ''}" title="${escapeHtml(label)}"><span class="num-label">${escapeHtml(label)}</span>${inputHtml}</div>`;
-}
-function comfyRandomEnabledField(field){ return field?.type === 'number' && field.random_enabled === true; }
-function smartComfyRandomActive(fieldId){
-    return smartComfyRandomActiveFor(settings, fieldId);
-}
-function smartComfyRandomActiveFor(source, fieldId){
-    const active = source?.comfyRandomActive || {};
-    return active[fieldId] !== false;
-}
-function toggleSmartComfyRandom(fieldId){
-    settings.comfyRandomActive = settings.comfyRandomActive || {};
-    settings.comfyRandomActive[fieldId] = !smartComfyRandomActive(fieldId);
-    persistActiveSmartSettings();
-    renderDynamicParams();
-    scheduleSave();
-}
-function smartComfyRandomValue(field){
-    const isFloat = Number(field.step) > 0 && Number(field.step) < 1;
-    let min = Number.isFinite(Number(field.min)) ? Number(field.min) : null;
-    let max = Number.isFinite(Number(field.max)) ? Number(field.max) : null;
-    const name = `${field.input || ''} ${field.name || ''}`.toLowerCase();
-    const looksSeed = name.includes('seed') || name.includes('noise') || name.includes('随机') || name.includes('噪');
-    if(min === null) min = looksSeed ? 1 : 0;
-    if(max === null || max <= min) max = looksSeed ? 4294967295 : 999999;
-    if(looksSeed) max = Math.min(max, 4294967295);
-    const value = min + Math.random() * (max - min);
-    if(isFloat){
-        const precision = Math.min(8, Math.max(1, String(field.step).split('.')[1]?.length || 2));
-        return Number(value.toFixed(precision));
-    }
-    return Math.floor(value);
-}
 function setDynamicSetting(key, value){
-    const numericKeys = new Set(['count','width','height','videoDuration','enhanceStrength','enhanceUpscaleRes','editUpscaleRes','customRatioWidth','customRatioHeight','customWidth','customHeight','msCustomRatioWidth','msCustomRatioHeight','msCustomWidth','msCustomHeight']);
-    const layoutKeys = new Set(['provider_id','model','resolution','ratio','msgenModel','msCustomModel','msResolution','msRatio','videoProvider','videoModel','videoAspect','videoResolution','comfyMode','comfyWorkflow','quality','count','enhanceUpscaleRes','editUpscaleRes','jimengUpscaleRes','rhConfigKey','rhPayment','rhInstanceType']);
+    const numericKeys = new Set(['count','width','height','enhanceStrength','enhanceUpscaleRes','editUpscaleRes','customRatioWidth','customRatioHeight','customWidth','customHeight','msCustomRatioWidth','msCustomRatioHeight','msCustomWidth','msCustomHeight']);
+    const layoutKeys = new Set(['provider_id','model','resolution','ratio','msgenModel','msCustomModel','msResolution','msRatio','quality','count','enhanceUpscaleRes','editUpscaleRes','jimengUpscaleRes']);
     settings[key] = numericKeys.has(key) && value !== '' ? Number(value) : value;
     if(key === 'provider_id') settings.model = '';
-    if(key === 'videoProvider') settings.videoModel = '';
-    if(key === 'videoMultimodal') settings._videoMultimodalUserSet = true;
-    if(key === 'videoMultimodal' && settings.videoMultimodal) settings.videoUseFrameRoles = false;
-    normalizeSmartVideoModeSettings(settings, key === 'videoUseFrameRoles');
-    if(key === 'comfyMode') applyRecentSmartSettingsForCurrentMode();
     if(key === 'resolution'){
         if(settings.resolution === 'custom') settings.ratio = '';
         else if(!settings.ratio) settings.ratio = 'square';
@@ -4114,14 +2963,6 @@ function setDynamicSetting(key, value){
         delete settings.outpaintResolutionLocked;
         const subject = activeSettingsSubject();
         if(subject) delete subject.outpaintSize;
-    }
-    if(key === 'comfyWorkflow') {
-        settings.comfyParams = {};
-        ensureComfyWorkflow(settings.comfyWorkflow).then(renderDynamicParams);
-    }
-    if(key === 'rhConfigKey'){
-        settings.rhParams = {};
-        settings.rhRandomActive = {};
     }
     persistActiveSmartSettings();
     rememberRecentSmartSettings(settings, activeSettingsSubject());
@@ -4169,7 +3010,7 @@ function bindDynamicParams(){
             const scope = btn.dataset.sizeScope;
             const resKey = prefix ? `${prefix}Resolution` : 'resolution';
             const ratioKey = prefix ? `${prefix}Ratio` : 'ratio';
-            const allowAuto = !prefix && settings.engine === 'api' && settings.apiKind !== 'video' && isGptImageAutoSizeModel(settings.model);
+            const allowAuto = !prefix && settings.engine === 'api' && isGptImageAutoSizeModel(settings.model);
             if(scope === 'auto'){
                 if(!allowAuto) return;
                 settings[resKey] = 'auto';
@@ -4222,58 +3063,6 @@ function bindDynamicParams(){
             } catch(e) {
                 toast((e.message || '操作失败').slice(0, 180));
             }
-        };
-    });
-    dynamicParams.querySelectorAll('[data-comfy-bool]').forEach(btn => {
-        btn.onclick = event => {
-            event.preventDefault();
-            event.stopPropagation();
-            settings.comfyParams = settings.comfyParams || {};
-            const id = btn.dataset.comfyBool;
-            const field = currentComfyFields().find(f => f.id === id);
-            settings.comfyParams[id] = !Boolean(settings.comfyParams[id] ?? field?.default ?? false);
-            persistActiveSmartSettings();
-            renderDynamicParams();
-            scheduleSave();
-        };
-    });
-    dynamicParams.querySelectorAll('[data-comfy-param]').forEach(input => {
-        input.onclick = event => event.stopPropagation();
-        input.oninput = input.onchange = event => {
-            event?.stopPropagation?.();
-            settings.comfyParams = settings.comfyParams || {};
-            const field = currentComfyFields().find(f => f.id === input.dataset.comfyParam);
-            if(field?.type === 'number' || field?.type === 'slider') settings.comfyParams[input.dataset.comfyParam] = Number(input.value) || 0;
-            else settings.comfyParams[input.dataset.comfyParam] = input.value;
-            persistActiveSmartSettings();
-            scheduleSave();
-        };
-    });
-    dynamicParams.querySelectorAll('[data-comfy-pick]').forEach(btn => {
-        btn.onclick = event => {
-            event.preventDefault();
-            event.stopPropagation();
-            settings.comfyParams = settings.comfyParams || {};
-            const fieldId = btn.dataset.comfyPick;
-            const value = btn.dataset.comfyValue;
-            settings.comfyParams[fieldId] = value;
-            const popover = btn.closest('.smart-popover');
-            const control = btn.closest('.smart-control');
-            const pillSub = control?.querySelector('.smart-pill .sub');
-            if(pillSub) pillSub.textContent = value;
-            if(popover){
-                popover.querySelectorAll(`[data-comfy-pick="${fieldId}"]`).forEach(b => b.classList.toggle('active', b.dataset.comfyValue === value));
-            }
-            closeAllSmartPopovers();
-            persistActiveSmartSettings();
-            scheduleSave();
-        };
-    });
-    dynamicParams.querySelectorAll('[data-comfy-random]').forEach(btn => {
-        btn.onclick = event => {
-            event.preventDefault();
-            event.stopPropagation();
-            toggleSmartComfyRandom(btn.dataset.comfyRandom);
         };
     });
     dynamicParams.querySelectorAll('[data-rh-bool]').forEach(btn => {
@@ -4349,18 +3138,8 @@ async function loadConfig(){
     try {
         const cfg = await fetch('/api/config').then(r => r.json());
         apiProviders = Array.isArray(cfg.api_providers) ? cfg.api_providers : [];
-        comfyInstanceCount = Math.max(1, (Array.isArray(cfg.comfy_instances) ? cfg.comfy_instances : []).filter(Boolean).length || 1);
-        // 提供商配置已就绪即先渲染参数面板，避免等工作流/RunningHub 预取完成后参数才「突然刷新出来」。
         sanitizeSmartApiSelection(settings);
         updateProviderModels();
-        const wf = await fetch('/api/workflows').then(r => r.json()).catch(() => ({workflows:[]}));
-        comfyWorkflows = Array.isArray(wf.workflows) ? wf.workflows : [];
-        runningHubWorkflowCache = {};
-        const rhProvider = apiProviders.find(p => p.id === 'runninghub');
-        const rhWorkflowIds = (rhProvider?.rh_workflows || []).map(item => String(item.workflowId || item.id || '').trim()).filter(Boolean);
-        await Promise.all(rhWorkflowIds.map(async workflowId => {
-            try { await ensureRunningHubWorkflow(workflowId); } catch(_) {}
-        }));
         lastConfigRefreshAt = Date.now();
         sanitizeSmartApiSelection(settings);
         updateProviderModels();
@@ -5306,42 +4085,9 @@ function usedCanvasOutputUrls(){
     }));
     return used;
 }
-function successfulRecentComfyLogOutputs(sourceNodeId='', withinMs=30 * 60 * 1000){
-    const cutoff = Date.now() - withinMs;
-    const logs = (canvas?.logs || [])
-        .filter(log => log && log.status === 'success' && Number(log.createdAt || 0) >= cutoff)
-        .filter(log => log.request?.workflow_json || String(log.platform || '').toLowerCase().includes('comfy'))
-        .sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
-    const scoped = sourceNodeId ? logs.filter(log => log.nodeId === sourceNodeId) : logs;
-    const usable = scoped.length ? scoped : logs.filter(log => !log.nodeId);
-    return usable.flatMap(log => (log.outputs || []).map(url => ({url, createdAt:log.createdAt, nodeId:log.nodeId}))).filter(item => item.url);
-}
 function recoverStuckLoopOutputsFromLogs(){
-    const used = usedCanvasOutputUrls();
-    let changed = false;
-    const slots = (nodes || [])
-        .filter(node => node && isSmartImageNode(node) && !isHistoryGroupNode(node))
-        .filter(node => (node.loopSourceId || node.loopRootId || Number.isFinite(Number(node.loopSlotIndex))) && !smartNodeHasDisplayResult(node))
-        .filter(node => (node.pending || node.running || node.queued) && !smartPendingTasks(node).length)
-        .sort((a, b) => (Number(a.loopSlotIndex || 0) - Number(b.loopSlotIndex || 0)) || (Number(a.y || 0) - Number(b.y || 0)));
-    slots.forEach(slot => {
-        const sourceId = slot.loopRootId || slot.sourceNodeId || '';
-        const output = successfulRecentComfyLogOutputs(sourceId).find(item => !used.has(item.url));
-        if(!output) return;
-        const kind = mediaKindForUrls([output.url], 'image');
-        const ext = kind === 'video' ? 'mp4' : kind === 'audio' ? 'mp3' : kind === 'text' ? 'txt' : 'png';
-        slot.images = [stripImageGenerationMeta({url:output.url, name:`comfy-recovered-${Number(slot.loopSlotIndex || 0) + 1}.${ext}`, kind, generatedResult:true})];
-        markSmartNodeComplete(slot);
-        if(kind) slot.outputKind = kind;
-        slot.title = slot.title || 'Image';
-        slot.scale = mediaNodeDefaultScale(slot);
-        delete slot.w;
-        delete slot.h;
-        used.add(output.url);
-        changed = true;
-        clearSourceBusyStateIfDownstreamDone(nodes.find(n => n.id === sourceId));
-    });
-    return changed;
+    // ComfyUI 日志恢复机制已随 ComfyUI 平台移除而停用：不再有日志来源可供恢复卡住的循环输出。
+    return false;
 }
 function completeSmartNodeWithImages(node, images){
     const copy = {...node, images};
@@ -5824,16 +4570,6 @@ function bindAssetItemEvents(){
             e.dataTransfer.setData('application/x-smart-asset', JSON.stringify(asset));
             e.dataTransfer.setData('text/plain', asset.url || el.dataset.url || '');
         });
-        el.addEventListener('dblclick', e => {
-            const node = selectedNode();
-            if(node?.type !== 'smart-minimax') return;
-            e.preventDefault();
-            e.stopPropagation();
-            hideAssetHoverPreview();
-            const item = (activeAssetCategory()?.items || []).find(x => x.id === el.dataset.assetId);
-            const asset = assetNodeImageFromItem(item || {url:el.dataset.url, name:el.dataset.name, kind:el.dataset.kind});
-            addAssetToSelectedMinimaxRefs(asset);
-        });
     });
     assetGrid.querySelectorAll('[data-rename-asset]').forEach(btn => {
         btn.onclick = async e => {
@@ -6007,7 +4743,6 @@ async function loadCanvas(){
         migrateSmartGroupImageMembers();
         canvas.connections = Array.isArray(canvas.connections) ? canvas.connections : [];
         nodes.forEach(n => {
-            if(n.type === 'smart-minimax') n.timelinePlaying = false;
             const pendingTasks = smartPendingTasks(n);
             if(pendingTasks.length){
                 n.pending = Math.max(pendingTasks.length, Number(n.pending || 0) || pendingTasks.length);
@@ -6031,8 +4766,6 @@ async function loadCanvas(){
         });
         canvasDefaultSmartSettings = cloneSmartSettings(settings);
         loadRecentSmartSettings();
-        if(settings.comfy_workflow && !settings.comfyWorkflow) settings.comfyWorkflow = settings.comfy_workflow;
-        if(settings.comfy_params && !settings.comfyParams) settings.comfyParams = settings.comfy_params;
         updateProviderModels();
         applyViewport();
         render();
@@ -6158,45 +4891,6 @@ function createLoopNode(x, y, options={}){
     scheduleSave();
     return node;
 }
-function createMinimaxNode(x, y, options={}){
-    if(!options.skipUndo) pushUndo();
-    const duration = 8;
-    const node = {
-        id:uid('minimax'),
-        type:'smart-minimax',
-        x,
-        y,
-        w:1040,
-        h:640,
-        title:'MiniMax H3',
-        workflow:'MiniMax_H3.json',
-        minimaxEngine:SMART_MINIMAX_DEFAULT_ENGINE,
-        minimaxRunningHubWorkflowId:'',
-        duration,
-        aspectRatio:'16:9 (Widescreen)',
-        megapixels:0.4,
-        promptDraftText:'',
-        refs:{image:[], video:[], audio:[]},
-        materials:[],
-        segments:[{id:uid('seg'), start:0, duration, prompt:'', refs:{image:[], video:[], audio:[]}, refItems:[], trimIn:0, trimOut:duration, result:null, results:[]}],
-        selectedSegmentId:'',
-        playhead:0,
-        timelineZoom:1,
-        minimaxPreviewH:190,
-        minimaxVideoTrackH:70,
-        minimaxRefLaneH:42,
-        minimaxMuted:false,
-        timelinePlaying:false,
-        running:false,
-        created_at:Date.now()
-    };
-    smartMinimaxEnsureSegment(node);
-    nodes.push(node);
-    if(options.select !== false) selectedId = node.id;
-    render();
-    scheduleSave();
-    return node;
-}
 function createSmartGroupNode(x, y, options={}){
     if(!options.skipUndo) pushUndo();
     const node = {id:uid('group'), type:'smart-group', x, y, w:SMART_GROUP_DEFAULT_WIDTH, h:SMART_GROUP_DEFAULT_HEIGHT, title:'智能分组', items:[], created_at:Date.now()};
@@ -6215,8 +4909,6 @@ function cloneSmartNode(node, dx=0, dy=0){
             ? 'loop'
             : node.type === 'smart-group'
             ? 'group'
-            : node.type === 'smart-minimax'
-            ? 'minimax'
             : 'smart'
     );
     copy.x = (Number(node.x) || 0) + dx;
@@ -6557,9 +5249,6 @@ function isVideoMediaItem(img){
     const url = smartOriginalMediaUrl(img).toLowerCase();
     return /\.(mp4|webm|mov|m4v|avi|mkv)(\?|$)/.test(url);
 }
-function isInlineVideoActive(img){
-    return Boolean(img && img._inlineVideoActive);
-}
 function isAudioMediaItem(img){
     if(!img) return false;
     if(img.kind === 'audio') return true;
@@ -6673,12 +5362,6 @@ function looksLikeImageMediaUrl(url){
     const path = text.split('?', 1)[0].split('#', 1)[0];
     return /\.(png|jpe?g|webp|gif|bmp|tiff)$/i.test(path);
 }
-function videoRefsOnly(refs){
-    return (refs || []).filter(ref => ref?.url && mediaKindForItem(ref) === 'video' && !looksLikeImageMediaUrl(ref.url));
-}
-function isRemoteVideoReferenceUrl(url){
-    return /^https?:\/\//i.test(String(url || '')) || /^asset:\/\//i.test(String(url || ''));
-}
 function audioRefsOnly(refs){
     return (refs || []).filter(ref => ref?.url && mediaKindForItem(ref) === 'audio');
 }
@@ -6760,7 +5443,7 @@ function singleMediaHtml(img, w, h){
     return smartPreviewImgHtml(img, 768, `class="node-img" draggable="false" style="width:${w}px;height:${h}px"`);
 }
 function smartNodeHasLiveMedia(node){
-    return Boolean(node?.type === 'smart-minimax' || (!node?.pending && (node?.images || []).some(img => img?.url)));
+    return Boolean(!node?.pending && (node?.images || []).some(img => img?.url));
 }
 function mediaSignaturePartFromElement(itemEl){
     if(itemEl?.dataset?.mediaSignature) return itemEl.dataset.mediaSignature;
@@ -6803,11 +5486,6 @@ function restoreMediaPlaybackState(media, state){
     else media.addEventListener('loadedmetadata', applyTime, {once:true});
 }
 function transplantSmartMediaElements(oldNodeEl, newNodeEl){
-    const oldStage = oldNodeEl?.querySelector?.('[data-minimax-player-stage]');
-    const newStage = newNodeEl?.querySelector?.('[data-minimax-player-stage]');
-    if(oldStage && newStage && oldStage.dataset.minimaxPlayerSegment === newStage.dataset.minimaxPlayerSegment && oldStage.dataset.minimaxPlayerUrl === newStage.dataset.minimaxPlayerUrl){
-        newStage.replaceWith(oldStage);
-    }
     const oldItems = [...(oldNodeEl?.querySelectorAll?.('.thumb-item,.image-wrap') || [])];
     const newItems = [...(newNodeEl?.querySelectorAll?.('.thumb-item,.image-wrap') || [])];
     oldItems.forEach((oldItem, index) => {
@@ -6858,13 +5536,6 @@ function restoreMediaPlaybackStates(states){
 }
 function smartRunTaskLabel(run){
     const s = run?.settings || {};
-    if(s.engine === 'runninghub') return s.rhTaskLabel || s.rhWorkflowTitle || s.rhAppTitle || s.rhWorkflowId || s.rhAppId || 'RunningHub';
-    if(run?.kind === 'video') return s.videoModel || 'Video';
-    if(s.engine === 'comfy'){
-        if(s.comfyMode === 'custom') return s.comfyWorkflow || 'ComfyUI';
-        const labels = {text:tr('canvas.comfyModeText') || '文生图', enhance:tr('canvas.comfyModeEnhance') || '图片增强', edit:tr('canvas.comfyModeEdit') || '图片编辑'};
-        return labels[s.comfyMode || 'text'] || 'ComfyUI';
-    }
     if(s.engine === 'modelscope'){
         return s.msgenModel === 'custom' ? (s.msCustomModel || 'Modelscope') : (MS_GEN_MODELS[s.msgenModel]?.label || s.msgenModel || 'Modelscope');
     }
@@ -7006,27 +5677,12 @@ function downloadSmartGroupImages(group){
 }
 function smartRunPlatformLabel(run){
     const s = run?.settings || {};
-    if(s.engine === 'comfy') return 'ComfyUI';
-    if(s.engine === 'runninghub') return 'RunningHub';
     if(s.engine === 'modelscope') return 'Modelscope';
-    if(run?.kind === 'video') return videoProviderById(s.videoProvider || '')?.name || s.videoProvider || 'Video';
     return apiProviderById(s.provider_id || '')?.name || s.provider_id || 'API';
 }
 function smartRunRequestMeta(run){
     const s = run?.settings || {};
-    if(s.engine === 'comfy') return {workflow_json:s.comfyWorkflow || '', mode:s.comfyMode || 'text'};
-    if(s.engine === 'runninghub') return {
-        workflow_id:s.rhWorkflowId || '',
-        webapp_id:s.rhAppId || '',
-        task_id:s.rhTaskId || '',
-        mode:s.rhMode || 'workflow',
-        duration:s.duration || '',
-        aspect_ratio:s.aspectRatio || '',
-        megapixels:s.megapixels || '',
-        refs:s.refCount || 0
-    };
     if(s.engine === 'modelscope') return {backend:'Modelscope', model:s.msgenModel || '', custom_model:s.msCustomModel || ''};
-    if(run?.kind === 'video') return {provider_id:s.videoProvider || '', model:s.videoModel || '', duration:s.videoDuration || '', aspect_ratio:s.videoAspect || '', resolution:s.videoResolution || ''};
     return {provider_id:s.provider_id || '', model:s.model || '', size:run?.size || '', quality:s.quality || '', n:s.count || 1};
 }
 function smartRunSnapshot(node, prompt, refs=[], kind='image'){
@@ -7316,474 +5972,6 @@ function smartLoopTokenLabel(token){
 function smartLoopTokenChipHtml(token){
     return `<span class="loop-smart-token-chip" contenteditable="false" data-token="${escapeHtml(token)}"><span>${escapeHtml(smartLoopTokenLabel(token))}</span><button type="button" aria-label="${escapeHtml(tr('common.delete'))}" title="${escapeHtml(tr('common.delete'))}">×</button></span>`;
 }
-function smartMinimaxEnsureSegment(node){
-    if(!node || node.type !== 'smart-minimax') return null;
-    node.minimaxEngine = smartMinimaxEngine(node);
-    node.refs = node.refs && typeof node.refs === 'object' ? node.refs : {image:[], video:[], audio:[]};
-    ['image','video','audio'].forEach(kind => { if(!Array.isArray(node.refs[kind])) node.refs[kind] = []; });
-    node.materials = Array.isArray(node.materials) ? node.materials : [];
-    node.segments = Array.isArray(node.segments) ? node.segments : [];
-    if(!node.segments.length){
-        node.segments.push({id:uid('seg'), start:0, duration:Number(node.duration || 8) || 8, prompt:'', refs:{image:[], video:[], audio:[]}, trimIn:0, trimOut:Number(node.duration || 8) || 8, result:null, results:[]});
-    }
-    node.segments.forEach((seg, index) => {
-        if(!seg.id) seg.id = uid('seg');
-        seg.start = Math.max(0, Number(seg.start) || 0);
-        seg.duration = Math.max(0.5, Number(seg.duration || node.duration || 8) || 8);
-        seg.prompt = String(seg.prompt || '');
-        seg.aspectRatio = seg.aspectRatio || node.aspectRatio || '16:9 (Widescreen)';
-        seg.megapixels = Math.max(0.1, Math.min(2, Number(seg.megapixels || node.megapixels || 0.4) || 0.4));
-        seg.refs = seg.refs && typeof seg.refs === 'object' ? seg.refs : {image:[], video:[], audio:[]};
-        ['image','video','audio'].forEach(kind => { if(!Array.isArray(seg.refs[kind])) seg.refs[kind] = []; });
-        const migratedRefs = ['image','video','audio']
-            .flatMap(kind => (seg.refs[kind] || []).map(ref => ({...ref, kind})))
-            .filter(ref => ref?.url);
-        seg.refItems = uniqueReferenceImages([...(Array.isArray(seg.refItems) ? seg.refItems : []), ...migratedRefs])
-            .filter(ref => ref?.url && ['image','video','audio'].includes(mediaKindForItem(ref)))
-            .map(ref => ({...ref, kind:mediaKindForItem(ref)}))
-            .slice(0, SMART_MINIMAX_REF_IMAGE_MAX + SMART_MINIMAX_REF_VIDEO_MAX + SMART_MINIMAX_REF_AUDIO_MAX);
-        seg.results = Array.isArray(seg.results) ? seg.results : [];
-        seg.result = seg.result && seg.result.url ? seg.result : (seg.results.find(item => item?.url) || null);
-        seg.trimIn = Math.max(0, Math.min(Number(seg.trimIn) || 0, Math.max(0, seg.duration - 0.1)));
-        seg.trimOut = Math.max(seg.trimIn + 0.1, Number(seg.trimOut || seg.duration) || seg.duration);
-        seg.trimOut = Math.min(seg.duration, seg.trimOut);
-        if(index > 0){
-            const prev = node.segments[index - 1];
-            seg.start = Math.max(seg.start, Number(prev.start || 0) + Number(prev.duration || 0));
-        }
-    });
-    if(!node.selectedSegmentId || !node.segments.some(seg => seg.id === node.selectedSegmentId)) node.selectedSegmentId = node.segments[0].id;
-    node.duration = Math.max(0.5, Number(node.duration || Math.max(...node.segments.map(seg => seg.start + seg.duration))) || 8);
-    return node.segments.find(seg => seg.id === node.selectedSegmentId) || node.segments[0];
-}
-function smartMinimaxSelectedSegment(node){
-    return smartMinimaxEnsureSegment(node);
-}
-function smartMinimaxMaxForKind(kind){
-    if(kind === 'image') return SMART_MINIMAX_REF_IMAGE_MAX;
-    if(kind === 'video') return SMART_MINIMAX_REF_VIDEO_MAX;
-    return SMART_MINIMAX_REF_AUDIO_MAX;
-}
-function smartMinimaxLabelForKind(kind){
-    if(kind === 'image') return 'Image';
-    if(kind === 'video') return 'Video';
-    return 'Audio';
-}
-function smartMinimaxIconForKind(kind){
-    if(kind === 'image') return 'image';
-    if(kind === 'video') return 'film';
-    return 'file-audio';
-}
-function smartMinimaxRefsForKind(node, kind){
-    const selected = smartMinimaxSelectedSegment(node);
-    const clipRefs = (selected?.refItems || []).filter(ref => ref?.url);
-    const local = clipRefs.filter(ref => mediaKindForItem(ref) === kind);
-    const nodeRefs = node?.refs?.[kind] || [];
-    const upstream = inputImagesFor(node).filter(ref => ref?.url && mediaKindForItem(ref) === kind);
-    // Explicit clip refs own the request. Global/upstream refs are only a migration fallback
-    // for older MiniMax nodes that did not store references per timeline segment.
-    const refs = clipRefs.length ? local : (nodeRefs.length ? nodeRefs : upstream);
-    return uniqueReferenceImages(refs).filter(ref => ref?.url && mediaKindForItem(ref) === kind).slice(0, smartMinimaxMaxForKind(kind));
-}
-function smartMinimaxAllRefs(node){
-    return ['image','video','audio'].flatMap(kind => smartMinimaxRefsForKind(node, kind));
-}
-function smartMinimaxAddSegmentRefs(node, seg, refs){
-    if(!node || node.type !== 'smart-minimax' || !seg) return false;
-    smartMinimaxEnsureSegment(node);
-    seg.refs = seg.refs && typeof seg.refs === 'object' ? seg.refs : {image:[], video:[], audio:[]};
-    ['image','video','audio'].forEach(kind => { if(!Array.isArray(seg.refs[kind])) seg.refs[kind] = []; });
-    seg.refItems = Array.isArray(seg.refItems) ? seg.refItems : [];
-    let changed = false;
-    (refs || []).forEach(ref => {
-        const kind = mediaKindForItem(ref);
-        if(!['image','video','audio'].includes(kind)) return;
-        const currentKindCount = seg.refItems.filter(item => mediaKindForItem(item) === kind).length;
-        if(currentKindCount >= smartMinimaxMaxForKind(kind)) return;
-        if(seg.refItems.some(item => item?.url === ref.url)) return;
-        const item = {...ref, kind};
-        seg.refItems.push(item);
-        const list = seg.refs[kind] || [];
-        if(list.length < smartMinimaxMaxForKind(kind) && !list.some(existing => existing?.url === ref.url)) list.push(item);
-        seg.refs[kind] = list;
-        changed = true;
-    });
-    return changed;
-}
-function smartMinimaxAddRefs(node, refs){
-    return smartMinimaxAddSegmentRefs(node, smartMinimaxSelectedSegment(node), refs);
-}
-function smartMinimaxAddLibraryRefs(node, refs){
-    if(!node || node.type !== 'smart-minimax') return false;
-    node.refs = node.refs && typeof node.refs === 'object' ? node.refs : {image:[], video:[], audio:[]};
-    ['image','video','audio'].forEach(kind => { if(!Array.isArray(node.refs[kind])) node.refs[kind] = []; });
-    let changed = false;
-    (refs || []).forEach(ref => {
-        const kind = mediaKindForItem(ref);
-        if(!['image','video','audio'].includes(kind)) return;
-        const max = smartMinimaxMaxForKind(kind);
-        const list = node.refs[kind] || [];
-        if(list.length >= max) return;
-        if(list.some(item => item?.url === ref.url)) return;
-        list.push({...ref, kind});
-        node.refs[kind] = list;
-        changed = true;
-    });
-    return changed;
-}
-function smartMinimaxDetachSourceRefs(node, sourceId){
-    if(!node || node.type !== 'smart-minimax' || !sourceId) return false;
-    let changed = false;
-    const keep = ref => {
-        const remove = ref?.nodeId === sourceId;
-        if(remove) changed = true;
-        return !remove;
-    };
-    smartMinimaxEnsureSegment(node);
-    (node.segments || []).forEach(seg => {
-        seg.refItems = (seg.refItems || []).filter(keep);
-        ['image','video','audio'].forEach(kind => {
-            if(Array.isArray(seg.refs?.[kind])) seg.refs[kind] = seg.refs[kind].filter(keep);
-        });
-    });
-    ['image','video','audio'].forEach(kind => {
-        if(Array.isArray(node.refs?.[kind])) node.refs[kind] = node.refs[kind].filter(keep);
-    });
-    if(Array.isArray(node.assetRefs)) node.assetRefs = node.assetRefs.filter(keep);
-    return changed;
-}
-function addAssetToSelectedMinimaxRefs(item){
-    const node = selectedNode();
-    if(!node || node.type !== 'smart-minimax' || !item?.url) return false;
-    const seg = smartMinimaxSelectedSegment(node);
-    if(!seg) return false;
-    pushUndo();
-    const added = smartMinimaxAddSegmentRefs(node, seg, [item]);
-    selectedId = node.id;
-    selectedIds = [];
-    selectedImage = {nodeId:'', index:-1};
-    render();
-    scheduleSave();
-    toast(added ? '已加入当前 MiniMax 片段参考' : '这个素材已经在当前片段参考里');
-    return true;
-}
-function smartMinimaxTimelineTotal(node){
-    smartMinimaxEnsureSegment(node);
-    return Math.max(Number(node?.duration || 0), ...(node?.segments || []).map(seg => Number(seg.start || 0) + Number(seg.duration || 0)), 1);
-}
-function smartMinimaxCompactSegments(node){
-    if(!node?.segments?.length) return;
-    node.segments.sort((a, b) => Number(a.start || 0) - Number(b.start || 0));
-    let cursor = 0;
-    node.segments.forEach(seg => {
-        seg.start = cursor;
-        cursor += Math.max(0.5, Number(seg.duration || 1));
-    });
-    node.duration = Math.max(1, cursor);
-    node.playhead = Math.min(Number(node.playhead || 0), node.duration);
-}
-function smartMinimaxLightMediaHtml(item, label = 'Reference'){
-    const kind = mediaKindForItem(item);
-    if(kind === 'image' && item?.url) return smartPreviewImgHtml(item, 512, 'draggable="false"');
-    if(kind === 'video' && item?.url) return `<div class="minimax-light-media has-thumb is-video">${smartVideoPreviewHtml(item, 512, 'draggable="false" alt=""')}<span>${escapeHtml(item.name || label)}</span></div>`;
-    const icon = kind === 'audio' ? 'file-audio' : kind === 'video' ? 'film' : 'sparkles';
-    const title = item?.name || label;
-    return `<div class="minimax-light-media ${kind ? `is-${kind}` : ''}"><i data-lucide="${icon}"></i><span>${escapeHtml(title)}</span></div>`;
-}
-function smartMinimaxPlayerHtml(seg){
-    const result = seg?.result?.url ? seg.result : null;
-    if(!result) return `<div class="minimax-player-empty"><i data-lucide="clapperboard"></i><span>Current segment</span></div>`;
-    if(isVideoMediaItem(result)) return smartMinimaxVideoPlayerHtml(result.url);
-    if(isAudioMediaItem(result)) return `<div class="minimax-player-audio"><i data-lucide="file-audio"></i><span>${escapeHtml(result.name || 'Audio asset')}</span></div><audio src="${escapeHtml(displayMediaUrl(result))}" data-minimax-player="1" controls preload="metadata"></audio>`;
-    return `<div class="minimax-player-image">${smartPreviewImgHtml(result, 1024, 'draggable="false"')}</div>`;
-}
-function smartMinimaxPlayerStageHtml(seg){
-    return `<div class="minimax-player-content" data-minimax-player-content="1">${smartMinimaxPlayerHtml(seg)}</div>`;
-}
-function smartMinimaxActiveSegmentAt(node, time){
-    return (node?.segments || []).find(seg => time >= Number(seg.start || 0) && time <= Number(seg.start || 0) + Number(seg.duration || 0)) || smartMinimaxSelectedSegment(node);
-}
-function smartMinimaxSegmentFromDropTarget(node, target, event){
-    const explicitId = target?.dataset?.minimaxDropSegment || '';
-    if(explicitId) return node.segments.find(item => item.id === explicitId) || smartMinimaxSelectedSegment(node);
-    const track = target?.closest?.('[data-minimax-scrub-track]') || target;
-    const ruler = track?.querySelector?.('.minimax-ruler') || track;
-    const content = ruler?.querySelector?.('.minimax-track-content') || ruler;
-    const rect = ruler?.getBoundingClientRect?.();
-    if(rect && event){
-        const x = (event.clientX - rect.left) + Number(ruler.scrollLeft || 0);
-        const width = Number(content?.scrollWidth || ruler.scrollWidth || rect.width || 1);
-        const ratio = Math.max(0, Math.min(1, x / Math.max(1, width)));
-        const time = ratio * smartMinimaxTimelineTotal(node);
-        return smartMinimaxActiveSegmentAt(node, time);
-    }
-    return smartMinimaxSelectedSegment(node);
-}
-function smartMinimaxSyncPlayerDom(el, seg, time, shouldPlay=false){
-    const stage = el.querySelector('[data-minimax-player-stage]');
-    if(!stage || !seg) return null;
-    const nextId = seg.id || '';
-    const nextUrl = seg.result?.url || '';
-    if(stage.dataset.minimaxPlayerSegment !== nextId || stage.dataset.minimaxPlayerUrl !== nextUrl){
-        stage.dataset.minimaxPlayerSegment = nextId;
-        stage.dataset.minimaxPlayerUrl = nextUrl;
-        let content = stage.querySelector('[data-minimax-player-content]');
-        if(!content){
-            const resizeHandle = stage.querySelector('[data-minimax-pane-resize="preview"]');
-            content = document.createElement('div');
-            content.className = 'minimax-player-content';
-            content.dataset.minimaxPlayerContent = '1';
-            [...stage.childNodes].forEach(child => {
-                if(child !== resizeHandle) content.appendChild(child);
-            });
-            stage.insertBefore(content, resizeHandle || null);
-        }
-        content.innerHTML = smartMinimaxPlayerHtml(seg);
-        if(window.lucide) lucide.createIcons({attrs:{'stroke-width':2}});
-    }
-    const media = stage.querySelector('[data-minimax-player]');
-    if(media){
-        const owner = nodes.find(item => item.id === el.dataset.id && item.type === 'smart-minimax');
-        media.muted = Boolean(owner?.minimaxMuted);
-        if(Number.isFinite(Number(owner?.minimaxVolume))) media.volume = Math.max(0, Math.min(1, Number(owner.minimaxVolume)));
-        const rel = Math.max(0, Number(time || 0) - Number(seg.start || 0));
-        const trimIn = Math.max(0, Number(seg.trimIn || 0));
-        const trimOut = Math.max(trimIn + 0.1, Number(seg.trimOut || seg.duration || rel));
-        const target = Math.max(trimIn, Math.min(trimOut, rel));
-        const seekThreshold = shouldPlay && !media.paused ? 0.35 : 0.05;
-        if(Number.isFinite(target) && Math.abs((media.currentTime || 0) - target) > seekThreshold){
-            try { media.currentTime = target; } catch {}
-        }
-        if(shouldPlay && media.paused) media.play?.().catch(() => {});
-        if(!shouldPlay && !media.paused) media.pause?.();
-    }
-    return media;
-}
-function smartMinimaxApplyTimelineTime(el, node, time, options={}){
-    const safeTime = smartMinimaxSetPlayheadDom(el, node, time);
-    const hit = smartMinimaxActiveSegmentAt(node, safeTime);
-    const changed = Boolean(hit?.id && hit.id !== node.selectedSegmentId);
-    if(changed){
-        node.selectedSegmentId = hit.id;
-        smartMinimaxSetActiveSegmentDom(el, node, hit);
-        smartMinimaxSyncFormDom(el, hit);
-        smartMinimaxSyncActionDom(el, hit);
-    }
-    if(hit && (options.syncPlayer || changed)) smartMinimaxSyncPlayerDom(el, hit, safeTime, Boolean(options.play));
-    return {time:safeTime, seg:hit, changed};
-}
-function smartMinimaxSetPlayheadDom(el, node, time){
-    const total = smartMinimaxTimelineTotal(node);
-    const safeTime = Math.max(0, Math.min(total, Number(time) || 0));
-    node.playhead = safeTime;
-    const pct = total > 0 ? (safeTime / total) * 100 : 0;
-    el.querySelectorAll('[data-minimax-playhead]').forEach(head => { head.style.left = `${pct}%`; });
-    const label = el.querySelector('[data-minimax-time-label]');
-    if(label){
-        const fmt = value => {
-            const n = Number(value) || 0;
-            return `${n.toFixed(n % 1 ? 1 : 0)}s`;
-        };
-        label.textContent = `${fmt(safeTime)} / ${fmt(total)}`;
-    }
-    return safeTime;
-}
-function smartMinimaxSyncFormDom(el, seg){
-    if(!seg) return;
-    const prompt = el.querySelector('[data-minimax-prompt]');
-    if(prompt && document.activeElement !== prompt) prompt.value = String(seg.prompt || '');
-    el.querySelectorAll('[data-minimax-seg-number]').forEach(input => {
-        if(document.activeElement === input) return;
-        const key = input.dataset.minimaxSegNumber;
-        if(key === 'duration') input.value = Math.max(0.5, Number(seg.duration || 0.5));
-        if(key === 'megapixels') input.value = Math.max(0.1, Number(seg.megapixels || 0.4));
-    });
-    el.querySelectorAll('[data-minimax-select]').forEach(select => {
-        if(document.activeElement === select) return;
-        const key = select.dataset.minimaxSelect;
-        if(key && seg[key]) select.value = seg[key];
-    });
-}
-function smartMinimaxSyncActionDom(el, seg){
-    const hasResult = Boolean(seg?.result?.url);
-    el.querySelectorAll('[data-minimax-export-selected], [data-minimax-result-delete]').forEach(btn => {
-        btn.disabled = !hasResult;
-    });
-    el.querySelectorAll('[data-minimax-play-timeline]').forEach(btn => { btn.disabled = false; });
-}
-function smartMinimaxSetActiveSegmentDom(el, node, seg){
-    if(!seg) return;
-    el.querySelectorAll('[data-minimax-segment], .minimax-ref-clip').forEach(item => {
-        item.classList.toggle('active', item.dataset.minimaxSegment === seg.id);
-    });
-    el.querySelectorAll('[data-minimax-ref-track]').forEach(track => {
-        track.dataset.minimaxActiveSegment = seg.id;
-    });
-}
-function smartMinimaxSetSegmentResult(node, seg, item){
-    if(!node || !seg || !item?.url) return false;
-    const kind = mediaKindForItem(item) || item.kind || 'video';
-    const result = {...item, kind, name:item.name || downloadNameForMediaItem(item, 'minimax')};
-    seg.result = result;
-    seg.results = Array.isArray(seg.results) ? seg.results : [];
-    if(!seg.results.some(existing => existing?.url === result.url)) seg.results.unshift(result);
-    node.materials = Array.isArray(node.materials) ? node.materials : [];
-    if(!node.materials.some(existing => existing?.url === result.url)) node.materials.unshift({...result, segmentId:seg.id, created_at:Date.now()});
-    return true;
-}
-function smartMinimaxMaterialFromDrag(node, dataTransfer){
-    const raw = readSmartDropData(dataTransfer, 'application/x-minimax-material');
-    if(raw){
-        try {
-            const data = JSON.parse(raw);
-            const source = nodes.find(n => n.id === data.nodeId && n.type === 'smart-minimax');
-            const item = source?.materials?.[Number(data.index)];
-            if(item?.url) return item;
-        } catch {}
-    }
-    const assetRaw = readSmartDropData(dataTransfer, 'application/x-smart-asset');
-    if(assetRaw){
-        try {
-            const asset = JSON.parse(assetRaw);
-            if(asset?.url) return assetNodeImageFromItem(asset);
-        } catch {}
-    }
-    const url = smartDropTextCandidates(dataTransfer).find(isRemoteSmartImageDropValue) || '';
-    return url ? {url, kind:mediaKindForUrls([url], 'video'), name:fileNameFromUrl(url) || 'material.mp4'} : null;
-}
-function smartMinimaxAssetFromDrag(node, dataTransfer){
-    const raw = readSmartDropData(dataTransfer, 'application/x-minimax-asset');
-    if(!raw) return null;
-    try {
-        const data = JSON.parse(raw);
-        const source = nodes.find(n => n.id === data.nodeId && n.type === 'smart-minimax');
-        const item = source?.assetRefs?.[Number(data.index)];
-        if(item?.url) return item;
-    } catch {}
-    return null;
-}
-function smartMinimaxRefFromDrag(dataTransfer){
-    const raw = readSmartDropData(dataTransfer, 'application/x-minimax-ref');
-    if(!raw) return null;
-    try {
-        const data = JSON.parse(raw);
-        const source = nodes.find(n => n.id === data.nodeId && n.type === 'smart-minimax');
-        const seg = source?.segments?.find(item => item.id === data.segmentId);
-        const index = Number(data.index);
-        const item = seg?.refItems?.[index];
-        const kind = mediaKindForItem(item);
-        if(item?.url) return {...item, kind, __minimaxDrag:{nodeId:data.nodeId, segmentId:data.segmentId, kind, index, copy:Boolean(data.copy)}};
-    } catch {}
-    return null;
-}
-async function smartMinimaxDropItemsFromEvent(e){
-    const ref = smartMinimaxRefFromDrag(e.dataTransfer);
-    if(ref?.url) return [ref];
-    const asset = smartMinimaxAssetFromDrag(null, e.dataTransfer);
-    if(asset?.url) return [asset];
-    const direct = smartMinimaxMaterialFromDrag(null, e.dataTransfer);
-    if(direct?.url) return [direct];
-    const files = smartImageFilesFromDataTransfer(e.dataTransfer);
-    if(files.length){
-        const uploaded = await uploadFilesFromDataTransfer(e.dataTransfer);
-        return uploaded.map(file => ({...file, kind:file.kind || mediaKindForItem(file)})).filter(item => item?.url);
-    }
-    const payload = await resolveSmartImageDropPayload(e.dataTransfer);
-    if(payload.type === 'url') return [{url:payload.url, kind:mediaKindForUrls([payload.url], 'video'), name:fileNameFromUrl(payload.url) || 'material.mp4'}];
-    if(payload.type === 'localPaths') {
-        return (payload.localPaths || []).map(url => ({
-            url,
-            kind:mediaKindForUrls([url], 'image'),
-            name:fileNameFromUrl(url) || smartImageNameFromUrl(url) || 'reference'
-        })).filter(item => item.url);
-    }
-    const textUrl = smartDropTextCandidates(e.dataTransfer).find(value => {
-        const text = String(value || '').trim();
-        return text.startsWith('/') || /^\.{1,2}\//.test(text);
-    }) || '';
-    if(textUrl) return [{url:textUrl, kind:mediaKindForUrls([textUrl], 'image'), name:fileNameFromUrl(textUrl) || smartImageNameFromUrl(textUrl) || 'reference'}];
-    return [];
-}
-function smartMinimaxDropZoneFromEvent(el, event){
-    if(!el || !event) return null;
-    const x = Number(event.clientX);
-    const y = Number(event.clientY);
-    const pointHit = Number.isFinite(x) && Number.isFinite(y) ? (document.elementFromPoint(x, y) || event.target || null) : (event.target || null);
-    const direct = pointHit?.closest?.('[data-minimax-asset-library], [data-minimax-ref-track], [data-minimax-drop-segment], [data-minimax-player-stage], .minimax-ref-label, .minimax-ref-gutter') || null;
-    if(direct && el.contains(direct)) return direct;
-    const zones = [...el.querySelectorAll('[data-minimax-asset-library], [data-minimax-ref-track], [data-minimax-drop-segment], [data-minimax-player-stage], .minimax-ref-label, .minimax-ref-gutter')];
-    for(const zone of zones){
-        const rect = zone.getBoundingClientRect?.();
-        if(!rect) continue;
-        if(Number.isFinite(x) && Number.isFinite(y) && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return zone;
-    }
-    const fallback = pointHit?.closest?.('.minimax-smart-node') || null;
-    return fallback && el.contains(fallback) ? fallback : null;
-}
-function smartMinimaxDropAccepted(dataTransfer){
-    const types = smartDropDataTypes(dataTransfer);
-    return hasSmartImageDropData(dataTransfer)
-        || hasSmartAssetDrag(dataTransfer)
-        || types.includes('application/x-minimax-material')
-        || types.includes('application/x-minimax-asset')
-        || types.includes('application/x-minimax-ref');
-}
-async function handleMinimaxTimelineDrop(el, node, event, zone){
-    if(!el || !node || node.type !== 'smart-minimax' || !zone) return false;
-    const items = await smartMinimaxDropItemsFromEvent(event);
-    const item = items.find(entry => ['video','image','audio'].includes(mediaKindForItem(entry))) || items[0];
-    if(!item?.url) return false;
-    const dropTarget = event.target?.closest?.('[data-minimax-drop-segment]') || zone;
-    const intoRefTrack = Boolean(zone.closest?.('[data-minimax-ref-track],.minimax-ref-clip,.minimax-ref-label,.minimax-ref-gutter') || zone.matches?.('[data-minimax-ref-track],.minimax-ref-label,.minimax-ref-gutter') || zone.classList?.contains('minimax-ref-clip'));
-    const seg = smartMinimaxSegmentFromDropTarget(node, dropTarget, event) || (intoRefTrack ? smartMinimaxSelectedSegment(node) : null);
-    if(!seg) return false;
-    pushUndo();
-    node.selectedSegmentId = seg.id;
-    const types = smartDropDataTypes(event.dataTransfer);
-    const intoAssetLibrary = Boolean(zone.closest?.('[data-minimax-asset-library]') || zone.matches?.('[data-minimax-asset-library]'));
-    const intoVideoTrack = Boolean(zone.closest?.('.minimax-video-track,.minimax-tl-clip') || zone.classList?.contains('minimax-video-track') || zone.classList?.contains('minimax-tl-clip'));
-    if(intoAssetLibrary){
-        smartMinimaxAddLibraryRefs(node, [item]);
-    } else if(types.includes('application/x-minimax-material') && !intoRefTrack && intoVideoTrack) {
-        smartMinimaxSetSegmentResult(node, seg, item);
-    } else {
-        const added = smartMinimaxAddSegmentRefs(node, seg, [item]);
-        const drag = item.__minimaxDrag;
-        const copyRef = event.altKey || Boolean(drag?.copy);
-        if(added && drag && !copyRef && drag.segmentId !== seg.id){
-            const source = nodes.find(n => n.id === drag.nodeId && n.type === 'smart-minimax');
-            const sourceSeg = source?.segments?.find(entry => entry.id === drag.segmentId);
-            const existing = sourceSeg?.refItems?.[Number(drag.index)];
-            if(existing?.url === item.url) {
-                sourceSeg.refItems.splice(Number(drag.index), 1);
-                ['image','video','audio'].forEach(kind => {
-                    if(Array.isArray(sourceSeg.refs?.[kind])) sourceSeg.refs[kind] = sourceSeg.refs[kind].filter(ref => ref?.url !== item.url);
-                });
-            }
-        }
-    }
-    render();
-    scheduleSave();
-    return true;
-}
-function globalMinimaxDropContext(event){
-    const x = Number(event?.clientX);
-    const y = Number(event?.clientY);
-    const pointHit = Number.isFinite(x) && Number.isFinite(y) ? (document.elementFromPoint(x, y) || event?.target || null) : (event?.target || null);
-    let el = pointHit?.closest?.('.minimax-smart-node') || event?.target?.closest?.('.minimax-smart-node') || null;
-    if(!el && Number.isFinite(x) && Number.isFinite(y)){
-        el = [...document.querySelectorAll('.minimax-smart-node')].find(item => {
-            const rect = item.getBoundingClientRect?.();
-            return rect && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-        }) || null;
-    }
-    if(!el?.dataset?.id) return null;
-    const node = nodes.find(item => item.id === el.dataset.id && item.type === 'smart-minimax');
-    if(!node) return null;
-    const zone = smartMinimaxDropZoneFromEvent(el, event);
-    if(!zone) return null;
-    return {el, node, zone};
-}
 
 function smartLoopVariableHtml(text){
     return String(text || '').split(/(《计数》|\[计数\])/g).map(part => {
@@ -7931,171 +6119,8 @@ function smartGroupBodyHtml(node){
         ${members.length ? '' : `<div class="smart-group-empty"><i data-lucide="plus"></i><span>拖入图片自动收进分组</span></div>`}
     </div>`;
 }
-function smartMinimaxBodyHtml(node){
-    const selected = smartMinimaxSelectedSegment(node);
-    const total = Math.max(Number(node.duration || 0), ...node.segments.map(seg => Number(seg.start || 0) + Number(seg.duration || 0)));
-    const fmt = value => {
-        const n = Number(value) || 0;
-        return n.toFixed(n % 1 ? 1 : 0);
-    };
-    const timeLabel = value => `${fmt(value)}s`;
-    const playhead = Math.max(0, Math.min(total || 1, Number(node.playhead || selected?.start || 0) || 0));
-    const playheadPct = total > 0 ? (playhead / total) * 100 : 0;
-    const ticks = Array.from({length:9}).map((_, index) => {
-        const pct = index * 12.5;
-        return `<span class="minimax-tick" style="left:${pct}%"><b>${timeLabel((total || 0) * pct / 100)}</b></span>`;
-    }).join('');
-    const timeline = node.segments.map((seg, index) => {
-        const start = Number(seg.start || 0);
-        const duration = Math.max(0.5, Number(seg.duration || 1));
-        const left = total > 0 ? (start / total) * 100 : 0;
-        const width = total > 0 ? Math.max(5, (duration / total) * 100) : 100;
-        const active = seg.id === node.selectedSegmentId;
-        const trimIn = Math.max(0, Number(seg.trimIn) || 0);
-        const trimOut = Math.min(duration, Math.max(trimIn + 0.1, Number(seg.trimOut || duration) || duration));
-        const result = seg.result?.url ? seg.result : null;
-        const media = result ? smartMinimaxLightMediaHtml(result, `Clip ${index + 1}`) : `<div class="minimax-clip-empty"><i data-lucide="sparkles"></i></div>`;
-        const refCount = (seg.refItems || []).filter(ref => ref?.url).length;
-        return `<div class="minimax-segment minimax-tl-clip ${active ? 'active' : ''} ${result ? 'has-result' : ''}" data-minimax-segment="${escapeAttr(seg.id)}" data-minimax-drop-segment="${escapeAttr(seg.id)}" style="left:${left}%;width:${Math.min(width, 100 - left)}%" title="Clip ${index + 1} · ${fmt(start)}s-${fmt(start + duration)}s">
-            <div class="minimax-clip-media">${media}</div>
-            <div class="minimax-clip-meta"><b>Clip ${index + 1}</b><span>${timeLabel(start)} - ${timeLabel(start + duration)}</span></div>
-            ${result ? `<span class="minimax-segment-result"><i data-lucide="video"></i></span>` : ''}
-            ${refCount ? `<span class="minimax-clip-ref-count"><i data-lucide="paperclip"></i>${refCount}</span>` : ''}
-            ${node.segments.length > 1 ? `<button type="button" class="minimax-clip-delete" data-minimax-segment-delete="${escapeAttr(seg.id)}" title="Delete"><i data-lucide="trash-2"></i></button>` : ''}
-            <span class="minimax-trim minimax-trim-left" data-minimax-trim="left" data-minimax-trim-segment="${escapeAttr(seg.id)}" style="left:${(trimIn / duration) * 100}%"></span>
-            <span class="minimax-trim minimax-trim-right" data-minimax-trim="right" data-minimax-trim-segment="${escapeAttr(seg.id)}" style="left:${(trimOut / duration) * 100}%"></span>
-        </div>`;
-    }).join('');
-    const refsForSegment = seg => (seg.refItems || []).map((ref, refIndex) => ({...ref, __index:refIndex, kind:mediaKindForItem(ref)}))
-        .filter(item => item?.url)
-        .slice(0, SMART_MINIMAX_REF_IMAGE_MAX + SMART_MINIMAX_REF_VIDEO_MAX + SMART_MINIMAX_REF_AUDIO_MAX);
-    const segmentRefLists = new Map(node.segments.map(seg => [seg.id, refsForSegment(seg)]));
-    const refLaneCount = Math.max(1, ...node.segments.map(seg => segmentRefLists.get(seg.id)?.length || 0));
-    const refTrack = Array.from({length:refLaneCount}).map((_, laneIndex) => {
-        const laneClips = node.segments.map((seg, index) => {
-            const start = Number(seg.start || 0);
-            const duration = Math.max(0.5, Number(seg.duration || 1));
-            const left = total > 0 ? (start / total) * 100 : 0;
-            const width = total > 0 ? Math.max(5, (duration / total) * 100) : 100;
-            const active = seg.id === node.selectedSegmentId;
-            const ref = segmentRefLists.get(seg.id)?.[laneIndex] || null;
-            const media = ref ? smartMinimaxLightMediaHtml(ref, `Ref ${laneIndex + 1}`) : `<div class="minimax-clip-empty"><i data-lucide="paperclip"></i></div>`;
-            const dragAttrs = ref ? ` draggable="true" data-minimax-ref-drag="${escapeAttr(`${seg.id}:${ref.__index}`)}"` : '';
-            return `<div class="minimax-ref-clip ${active ? 'active' : ''} ${ref ? 'has-ref' : 'is-empty'}" data-minimax-segment="${escapeAttr(seg.id)}" data-minimax-drop-segment="${escapeAttr(seg.id)}"${dragAttrs} style="left:${left}%;width:${Math.min(width, 100 - left)}%">
-                <div class="minimax-ref-media">${media}</div>
-                ${ref ? `<button type="button" data-minimax-ref-thumb-delete="${escapeAttr(`${seg.id}:${ref.__index}`)}" title="Remove reference"><i data-lucide="x"></i></button>` : ''}
-                <span class="minimax-ref-counts">${ref ? escapeHtml(ref.name || `Ref ${laneIndex + 1}`) : `Ref ${laneIndex + 1}`}</span>
-            </div>`;
-        }).join('');
-        return `<div class="minimax-ref-lane">${laneClips}</div>`;
-    }).join('');
-    const selectedResult = selected?.result?.url ? selected.result : null;
-    const previewH = Math.max(130, Math.min(760, Number(node.minimaxPreviewH || 190)));
-    const videoTrackH = Math.max(44, Math.min(160, Number(node.minimaxVideoTrackH || 70)));
-    const refLaneH = Math.max(28, Math.min(160, Number(node.minimaxRefLaneH || 42)));
-    const libraryW = Math.max(178, Math.min(420, Number(node.minimaxLibraryW || 178)));
-    const refTrackH = Math.max(72, refLaneCount * refLaneH);
-    const timelineZoom = Math.max(1, Math.min(8, Number(node.timelineZoom || 1)));
-    const timelineWidth = `${Math.round(timelineZoom * 100)}%`;
-    const refAssets = uniqueReferenceImages([
-        ...node.segments.flatMap(seg => (seg.refItems || []).map(ref => ({...ref, kind:mediaKindForItem(ref), segmentId:seg.id}))),
-        ...['image','video','audio'].flatMap(kind => (node.refs?.[kind] || []).map(ref => ({...ref, kind}))),
-        ...inputImagesFor(node).filter(ref => ref?.url && ['image','video','audio'].includes(mediaKindForItem(ref))).map(ref => ({...ref, kind:mediaKindForItem(ref)}))
-    ]).filter(item => item?.url).slice(0, 36);
-    node.assetRefs = refAssets;
-    const materials = (node.materials || []).filter(item => item?.url).slice(0, 24);
-    const assetHtml = refAssets.length ? refAssets.map((item, index) => `<div class="minimax-material-card minimax-asset-item" draggable="true" data-minimax-asset="${index}" title="${escapeAttr(item.name || smartMinimaxLabelForKind(mediaKindForItem(item)))}">
-        ${smartMinimaxLightMediaHtml(item, smartMinimaxLabelForKind(mediaKindForItem(item)))}
-        <span>${escapeHtml(smartMinimaxLabelForKind(mediaKindForItem(item)))}</span>
-    </div>`).join('') : `<div class="minimax-library-empty"><i data-lucide="database"></i><span>Assets</span></div>`;
-    const materialHtml = materials.length ? materials.map((item, index) => `<div class="minimax-material-card minimax-output-item" draggable="true" data-minimax-material="${index}" title="${escapeAttr(item.name || '??')}">
-        ${smartMinimaxLightMediaHtml(item, 'Output')}
-        <button type="button" data-minimax-download-material="${index}" title="Download"><i data-lucide="download"></i></button>
-        <button type="button" data-minimax-use-material="${index}" title="Use as current result"><i data-lucide="replace"></i></button>
-    </div>`).join('') : `<div class="minimax-library-empty"><i data-lucide="inbox"></i><span>Output</span></div>`;
-    const segDuration = Math.max(0.5, Number(selected?.duration || node.duration || 8) || 8);
-    const aspectRatio = selected?.aspectRatio || node.aspectRatio || '16:9 (Widescreen)';
-    const megapixels = Number(selected?.megapixels || node.megapixels || 0.4);
-    const selectedIndex = Math.max(0, node.segments.findIndex(item => item.id === selected?.id));
-    const selectedRefs = refsForSegment(selected || {refItems:[]});
-    const selectedRefSummary = ['image','video','audio']
-        .map(kind => ({kind, count:selectedRefs.filter(item => item.kind === kind).length}))
-        .filter(item => item.count > 0);
-    const minimaxEngine = smartMinimaxEngine(node);
-    return `<div class="minimax-card minimax-workbench">
-        <div class="minimax-wb-toolbar">
-            <div class="minimax-brand">
-                <i data-lucide="clapperboard"></i>
-                <span>MiniMax H3</span>
-                <b data-minimax-time-label="1">${timeLabel(playhead)} / ${timeLabel(total)}</b>
-            </div>
-            <div class="minimax-transport"></div>
-            <div class="minimax-top-actions">
-                <button type="button" data-minimax-export-selected="1" ${selectedResult ? '' : 'disabled'} title="Export selected clip"><i data-lucide="download"></i></button>
-                <button type="button" data-minimax-export-full="1" title="Export timeline"><i data-lucide="file-down"></i></button>
-            </div>
-        </div>
-        <div class="minimax-wb-body" style="--minimax-library-w:${libraryW}px">
-            <div class="minimax-library minimax-asset-bin" data-minimax-asset-library="1">
-                <span class="minimax-pane-resize minimax-library-resize" data-minimax-pane-resize="library"></span>
-                <div class="minimax-library-head"><i data-lucide="database"></i><span>Assets</span></div>
-                <div class="minimax-library-list">${assetHtml}</div>
-                <div class="minimax-library-head minimax-output-head"><i data-lucide="folder-output"></i><span>Output</span></div>
-                <div class="minimax-library-list minimax-output-list">${materialHtml}</div>
-            </div>
-            <div class="minimax-wb-main" style="--minimax-preview-h:${previewH}px;--minimax-video-h:${videoTrackH}px;--minimax-ref-h:${refTrackH}px;--minimax-ref-lane-h:${refLaneH}px">
-                <div class="minimax-player-stage" data-minimax-player-stage="1" data-minimax-player-segment="${escapeAttr(selected?.id || '')}" data-minimax-player-url="${escapeAttr(selectedResult?.url || '')}">
-                    ${smartMinimaxPlayerStageHtml(selected)}
-                    <span class="minimax-pane-resize minimax-preview-resize" data-minimax-pane-resize="preview"></span>
-                </div>
-                <div class="minimax-edit-timeline" data-minimax-scrub-track="1">
-                    <span class="minimax-pane-resize minimax-video-resize" data-minimax-pane-resize="video"></span>
-                    <span class="minimax-pane-resize minimax-ref-resize" data-minimax-pane-resize="refs"></span>
-                    <div class="minimax-timeline-controls">
-                        <button type="button" data-minimax-play-timeline="1" title="Play / pause"><i data-lucide="play"></i></button>
-                        <button type="button" data-minimax-toggle-mute="1" title="${node.minimaxMuted ? 'Unmute' : 'Mute'}"><i data-lucide="${node.minimaxMuted ? 'volume-x' : 'volume-2'}"></i></button>
-                    </div>
-                    <div class="minimax-ruler"><div class="minimax-track-content" style="width:${timelineWidth}">${ticks}<span class="minimax-playhead" data-minimax-playhead="1" style="left:${playheadPct}%"></span></div></div>
-                    <div class="minimax-add-gutter minimax-ruler-gutter"></div>
-                    <div class="minimax-track-label minimax-video-label">Video</div>
-                    <div class="minimax-track minimax-video-track"><div class="minimax-track-content" style="width:${timelineWidth}">${timeline}</div></div>
-                    <button type="button" class="minimax-video-add" data-minimax-add-segment="1" title="Add blank segment"><i data-lucide="plus"></i></button>
-                    <div class="minimax-track-label minimax-ref-label">Refs</div>
-                    <div class="minimax-ref-track" data-minimax-ref-track="1" data-minimax-active-segment="${escapeAttr(selected?.id || '')}" style="--ref-lanes:${refLaneCount}"><div class="minimax-ref-content" style="width:${timelineWidth}">${refTrack}</div></div>
-                    <div class="minimax-add-gutter minimax-ref-gutter"></div>
-                </div>
-                <div class="minimax-current-panel">
-                    <div class="minimax-current-head">
-                        <div class="minimax-current-title"><span class="minimax-current-dot"></span><b>Clip ${selectedIndex + 1}</b><span>${timeLabel(Number(selected?.start || 0))} - ${timeLabel(Number(selected?.start || 0) + segDuration)}</span></div>
-                        <div class="minimax-current-refs">
-                            ${selectedRefSummary.length ? selectedRefSummary.map(item => `<span><i data-lucide="${smartMinimaxIconForKind(item.kind)}"></i>${item.count}</span>`).join('') : '<span>No refs</span>'}
-                        </div>
-                    </div>
-                    <label class="minimax-prompt-field">
-                        <span><i data-lucide="text-cursor-input"></i>Prompt</span>
-                        <textarea data-minimax-prompt="1" placeholder="Prompt for selected clip">${escapeHtml(selected?.prompt || '')}</textarea>
-                    </label>
-                    <div class="minimax-clip-parameters">
-                        <div class="minimax-section-label"><i data-lucide="sliders-horizontal"></i><span>Clip settings</span></div>
-                        <div class="minimax-settings minimax-segment-fields">
-                            <label class="minimax-wide-setting minimax-engine-setting"><span>Engine</span><select class="minimax-engine-select" data-minimax-engine title="选择生成来源">
-                                <option value="comfyui" ${minimaxEngine === 'comfyui' ? 'selected' : ''}>ComfyUI</option>
-                                <option value="runninghub" ${minimaxEngine === 'runninghub' ? 'selected' : ''}>RunningHub</option>
-                            </select></label>
-                            <label><span>Duration</span><input type="number" min="0.5" max="60" step="0.1" data-minimax-seg-number="duration" value="${escapeAttr(segDuration)}"><b>s</b></label>
-                            <label><span>Megapixels</span><input type="number" min="0.1" max="2" step="0.1" data-minimax-seg-number="megapixels" value="${escapeAttr(megapixels)}"><b>MP</b></label>
-                            <label class="minimax-wide-setting"><span>Aspect ratio</span><select data-minimax-select="aspectRatio">${['16:9 (Widescreen)','9:16 (Portrait)','1:1 (Square)','4:3 (Standard)','3:4 (Portrait)','21:9 (Ultrawide)'].map(value => `<option value="${escapeAttr(value)}" ${value === aspectRatio ? 'selected' : ''}>${escapeHtml(value.split(' ')[0])}</option>`).join('')}</select></label>
-                            <button class="minimax-run ${node.running ? 'is-stop' : ''}" type="button" data-minimax-run="${escapeAttr(node.id)}" ${node.running ? 'disabled' : ''} title="Generate selected clip"><i data-lucide="${node.running ? 'loader-2' : 'sparkles'}"></i><span>${node.running ? 'Running' : 'Generate clip'}</span></button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>`;
-}
 
 function nodeBodyHtml(node, layout){
-    if(node.type === 'smart-minimax') return smartMinimaxBodyHtml(node);
     if(node.type === 'smart-group') return smartGroupBodyHtml(node);
     if(node.type === 'smart-prompt') return promptNodeBodyHtml(node);
     if(node.type === 'smart-loop') return smartLoopBodyHtml(node);
@@ -8409,12 +6434,11 @@ function render(){
         .sort((a, b) => (isSmartGroupNode(a) ? 0 : 1) - (isSmartGroupNode(b) ? 0 : 1))
         .map(node => {
         const imgs = node.images || [];
-        const title = node.type === 'smart-group' ? (node.title === '万能分组' ? '智能分组' : (node.title || '智能分组')) : node.type === 'smart-prompt' ? 'Prompt' : node.type === 'smart-loop' ? 'Loop' : node.type === 'smart-minimax' ? 'MiniMax H3' : (imgs.length > 1 ? 'Group' : imgs.length ? 'Image' : escapeHtml(tr('smart.createImportNode')));
+        const title = node.type === 'smart-group' ? (node.title === '万能分组' ? '智能分组' : (node.title || '智能分组')) : node.type === 'smart-prompt' ? 'Prompt' : node.type === 'smart-loop' ? 'Loop' : (imgs.length > 1 ? 'Group' : imgs.length ? 'Image' : escapeHtml(tr('smart.createImportNode')));
         const scale = nodeScale(node);
         const layout = imageLayout(imgs, scale, node);
         const isPrompt = node.type === 'smart-prompt';
         const isLoop = node.type === 'smart-loop';
-        const isMinimax = node.type === 'smart-minimax';
         const isSmartGroup = node.type === 'smart-group';
         const isCompactMember = isSmartGroupCompactMember(node);
         const isImageNode = node.type === 'smart-image' || !node.type;
@@ -8425,18 +6449,18 @@ function render(){
         const isGroup = isImageNode && imgs.length > 1;
         const isPending = ((node.pending || isQueued || isJimengPending) && imgs.length === 0);
         const body = nodeBodyHtml(node, layout);
-        const deleteBtn = (isGroup || isMinimax) ? '' : `<button class="mini-x node-delete" type="button" title="${escapeHtml(tr('smart.deleteNode'))}"><i data-lucide="trash-2"></i></button>`;
-        const hint = isSmartGroup ? '双击添加 · 拖入归组 · 选中后生成' : isMinimax ? 'Timeline editing' : isPending ? escapeHtml(tr('smart.hintPending')) : (imgs.length > 1 ? escapeHtml(tr('smart.hintMulti')) : imgs.length ? escapeHtml(tr('smart.hintSingle')) : escapeHtml(tr('smart.hintEmpty')));
-        const html = `<div class="image-node ${isEmpty ? 'empty-node' : ''} ${isGroup ? 'group-node' : ''} ${isHistory ? 'history-group-node' : ''} ${isPrompt ? 'prompt-smart-node' : ''} ${isLoop ? 'loop-smart-node' : ''} ${isMinimax ? 'minimax-smart-node' : ''} ${isSmartGroup ? 'smart-group-node' : ''} ${isCompactMember ? 'smart-group-member-node' : ''} ${isNodeSelected(node.id) ? 'selected' : ''} ${(dragState?.groupIds?.includes(node.id) || dragState?.id === node.id) ? 'dragging' : ''} ${node.running ? 'node-running' : ''} ${isPending ? 'node-pending' : ''}" data-id="${escapeHtml(node.id)}" style="left:${node.x || 0}px;top:${node.y || 0}px;width:${layout.width}px;height:${layout.height}px">
+        const deleteBtn = isGroup ? '' : `<button class="mini-x node-delete" type="button" title="${escapeHtml(tr('smart.deleteNode'))}"><i data-lucide="trash-2"></i></button>`;
+        const hint = isSmartGroup ? '双击添加 · 拖入归组 · 选中后生成' : isPending ? escapeHtml(tr('smart.hintPending')) : (imgs.length > 1 ? escapeHtml(tr('smart.hintMulti')) : imgs.length ? escapeHtml(tr('smart.hintSingle')) : escapeHtml(tr('smart.hintEmpty')));
+        const html = `<div class="image-node ${isEmpty ? 'empty-node' : ''} ${isGroup ? 'group-node' : ''} ${isHistory ? 'history-group-node' : ''} ${isPrompt ? 'prompt-smart-node' : ''} ${isLoop ? 'loop-smart-node' : ''} ${isSmartGroup ? 'smart-group-node' : ''} ${isCompactMember ? 'smart-group-member-node' : ''} ${isNodeSelected(node.id) ? 'selected' : ''} ${(dragState?.groupIds?.includes(node.id) || dragState?.id === node.id) ? 'dragging' : ''} ${node.running ? 'node-running' : ''} ${isPending ? 'node-pending' : ''}" data-id="${escapeHtml(node.id)}" style="left:${node.x || 0}px;top:${node.y || 0}px;width:${layout.width}px;height:${layout.height}px">
 
             <div class="node-head"><div class="node-title">${title}</div><div class="node-actions">${deleteBtn}</div></div>
-            ${!isEmpty && !isGroup && !isMinimax ? `<div class="floating-node-actions"><button class="mini-x node-delete" type="button" title="${escapeHtml(tr('smart.deleteNode'))}"><i data-lucide="trash-2"></i></button></div>` : ''}
+            ${!isEmpty && !isGroup ? `<div class="floating-node-actions"><button class="mini-x node-delete" type="button" title="${escapeHtml(tr('smart.deleteNode'))}"><i data-lucide="trash-2"></i></button></div>` : ''}
             ${smartNodeToolbarHtml(node)}${smartGroupToolbarHtml(node)}
             ${runTimePillHtml(node)}
             <div class="node-body">${body}</div>
             ${isCompactMember && (isPrompt || isLoop) ? '<div class="smart-group-member-grab" title="拖动移出分组"></div>' : ''}
             <div class="node-hint">${hint}</div>
-            ${imgs.length || node.pending || isQueued || isJimengPending || isPrompt || isLoop || isMinimax || isSmartGroup ? '<div class="node-resize-handle" data-resize="1"></div>' : ''}
+            ${imgs.length || node.pending || isQueued || isJimengPending || isPrompt || isLoop || isSmartGroup ? '<div class="node-resize-handle" data-resize="1"></div>' : ''}
             <div class="node-port port-in" data-port="in" title="input"></div>
             <div class="node-port port-out" data-port="out" title="output"></div>
         </div>`;
@@ -8490,17 +6514,16 @@ function render(){
         const layout = imageLayout(imgs, scale, node);
         const isPrompt = node.type === 'smart-prompt';
         const isLoop = node.type === 'smart-loop';
-        const isMinimax = node.type === 'smart-minimax';
         const isImageNode = node.type === 'smart-image' || !node.type;
         const isQueued = Boolean(node.queued && imgs.length === 0 && !node.pending);
         const isEmpty = isImageNode && imgs.length === 0 && !node.pending && !isQueued;
         const isGroup = isImageNode && imgs.length > 1;
         const isPending = (node.pending || isQueued) && imgs.length === 0;
         const body = nodeBodyHtml(node, layout);
-        const deleteBtn = (isGroup || isMinimax) ? '' : `<button class="mini-x node-delete" type="button" title="${escapeHtml(tr('smart.deleteNode'))}"><i data-lucide="trash-2"></i></button>`;
+        const deleteBtn = isGroup ? '' : `<button class="mini-x node-delete" type="button" title="${escapeHtml(tr('smart.deleteNode'))}"><i data-lucide="trash-2"></i></button>`;
         return `<div class="image-node ${isEmpty ? 'empty-node' : ''} ${isGroup ? 'group-node' : ''} ${isPrompt ? 'prompt-smart-node' : ''} ${isLoop ? 'loop-smart-node' : ''} ${isNodeSelected(node.id) ? 'selected' : ''} ${(dragState?.groupIds?.includes(node.id) || dragState?.id === node.id) ? 'dragging' : ''} ${node.running ? 'node-running' : ''} ${isPending ? 'node-pending' : ''}" data-id="${escapeHtml(node.id)}" style="left:${node.x || 0}px;top:${node.y || 0}px;width:${layout.width}px;height:${layout.height}px">
             <div class="node-head"><div class="node-title">${title}</div><div class="node-actions">${deleteBtn}</div></div>
-            ${!isEmpty && !isGroup && !isMinimax ? `<div class="floating-node-actions"><button class="mini-x node-delete" type="button" title="${escapeHtml(tr('smart.deleteNode'))}"><i data-lucide="trash-2"></i></button></div>` : ''}
+            ${!isEmpty && !isGroup ? `<div class="floating-node-actions"><button class="mini-x node-delete" type="button" title="${escapeHtml(tr('smart.deleteNode'))}"><i data-lucide="trash-2"></i></button></div>` : ''}
             ${smartNodeToolbarHtml(node)}
             ${runTimePillHtml(node)}
             <div class="node-body">${body}</div>
@@ -8884,579 +6907,6 @@ function bindLoopNodeControls(el, node){
         };
     });
 }
-function bindMinimaxNodeControls(el, node){
-    const focusMinimaxNode = () => {
-        if(selectedId === node.id && selectedIds.length === 0 && selectedImage.nodeId === '') return;
-        hideRunTimerForNode(node);
-        selectedId = node.id;
-        selectedIds = [];
-        selectedImage = {nodeId:'', index:-1};
-        if(smartCascadeAnyRunning()) smartCascadeSilentSelection = false;
-        syncSelectionUi();
-        updateComposer();
-    };
-    el.querySelectorAll('.minimax-library-list').forEach(scroller => {
-        scroller.addEventListener('wheel', e => e.stopPropagation(), {passive:true});
-    });
-    el.addEventListener('dragover', e => {
-        const zone = smartMinimaxDropZoneFromEvent(el, e);
-        if(!zone || !smartMinimaxDropAccepted(e.dataTransfer)) return;
-        e.preventDefault();
-        e.stopPropagation();
-        e.dataTransfer.dropEffect = smartDropDataTypes(e.dataTransfer).includes('application/x-minimax-ref') && !e.altKey ? 'move' : 'copy';
-    }, true);
-    el.addEventListener('drop', e => {
-        const zone = smartMinimaxDropZoneFromEvent(el, e);
-        if(!zone || !smartMinimaxDropAccepted(e.dataTransfer)) return;
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation?.();
-        focusMinimaxNode();
-        handleMinimaxTimelineDrop(el, node, e, zone);
-    }, true);
-    let minimaxDeleteRenderQueued = false;
-    const renderAfterMinimaxDelete = () => {
-        if(minimaxDeleteRenderQueued) return;
-        minimaxDeleteRenderQueued = true;
-        setTimeout(() => {
-            render();
-            scheduleSave();
-        }, 16);
-    };
-    const stopFastMinimaxButton = e => {
-        if(e.button !== undefined && e.button !== 0) return false;
-        e.preventDefault();
-        e.stopPropagation();
-        if(e.stopImmediatePropagation) e.stopImmediatePropagation();
-        focusMinimaxNode();
-        return true;
-    };
-    const bindFastMinimaxButton = (btn, action) => {
-        btn.addEventListener('pointerdown', stopFastMinimaxButton, true);
-        btn.addEventListener('mousedown', stopFastMinimaxButton, true);
-        btn.addEventListener('click', e => {
-            if(!stopFastMinimaxButton(e)) return;
-            action(e);
-        }, true);
-    };
-    el.querySelectorAll('button,input,select,textarea,video,audio').forEach(control => {
-        control.addEventListener('mousedown', e => {
-            focusMinimaxNode();
-            e.stopPropagation();
-        });
-        control.addEventListener('click', e => {
-            focusMinimaxNode();
-            e.stopPropagation();
-        });
-        control.addEventListener('dblclick', e => e.stopPropagation());
-    });
-    el.querySelectorAll('[data-minimax-engine]').forEach(select => {
-        select.onchange = e => {
-            e.stopPropagation();
-            focusMinimaxNode();
-            const nextEngine = select.value === 'runninghub' ? 'runninghub' : SMART_MINIMAX_DEFAULT_ENGINE;
-            if(nextEngine === 'runninghub'){
-                const entry = smartMinimaxRunningHubEntry(node);
-                if(!entry){
-                    select.value = smartMinimaxEngine(node);
-                    toast(`请先在 API 设置中添加「${SMART_MINIMAX_RUNNINGHUB_WORKFLOW_TITLE}」`);
-                    return;
-                }
-                node.minimaxRunningHubWorkflowId = runningHubEntryId(entry, 'workflow');
-            }
-            node.minimaxEngine = nextEngine;
-            render();
-            scheduleSave();
-        };
-    });
-    el.querySelectorAll('[data-minimax-segment]').forEach(btn => {
-        btn.addEventListener('mousedown', e => {
-            if(e.target.closest('[data-minimax-trim]')) return;
-            focusMinimaxNode();
-            e.stopPropagation();
-        });
-        btn.onclick = e => {
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            node.selectedSegmentId = btn.dataset.minimaxSegment || node.selectedSegmentId;
-            const seg = smartMinimaxSelectedSegment(node);
-            const time = smartMinimaxSetPlayheadDom(el, node, Number(seg?.start || 0) + Number(seg?.trimIn || 0));
-            smartMinimaxSetActiveSegmentDom(el, node, seg);
-            smartMinimaxSyncFormDom(el, seg);
-            smartMinimaxSyncActionDom(el, seg);
-            smartMinimaxSyncPlayerDom(el, seg, time, false);
-            scheduleSave();
-        };
-    });
-    el.querySelectorAll('[data-minimax-trim]').forEach(handle => {
-        handle.addEventListener('mousedown', e => {
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            const seg = node.segments.find(item => item.id === handle.dataset.minimaxTrimSegment) || smartMinimaxSelectedSegment(node);
-            const track = handle.closest('[data-minimax-drop-segment]');
-            if(!seg || !track) return;
-            pushUndo();
-            node.selectedSegmentId = seg.id;
-            const mode = handle.dataset.minimaxTrim;
-            const trimLeft = track.querySelector('[data-minimax-trim="left"]');
-            const trimRight = track.querySelector('[data-minimax-trim="right"]');
-            smartMinimaxSetActiveSegmentDom(el, node, seg);
-            const onMove = event => {
-                const rect = track.getBoundingClientRect();
-                const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
-                const value = ratio * Math.max(0.5, Number(seg.duration || 1));
-                if(mode === 'left') seg.trimIn = Math.max(0, Math.min(value, Number(seg.trimOut || seg.duration) - 0.1));
-                else seg.trimOut = Math.max(Number(seg.trimIn || 0) + 0.1, Math.min(Number(seg.duration || 0.5), value));
-                if(trimLeft) trimLeft.style.left = `${(Number(seg.trimIn || 0) / Math.max(0.5, Number(seg.duration || 1))) * 100}%`;
-                if(trimRight) trimRight.style.left = `${(Number(seg.trimOut || seg.duration) / Math.max(0.5, Number(seg.duration || 1))) * 100}%`;
-                const time = smartMinimaxSetPlayheadDom(el, node, Number(seg.start || 0) + Number(mode === 'left' ? seg.trimIn : seg.trimOut));
-                smartMinimaxSyncPlayerDom(el, seg, time, false);
-            };
-            const onUp = () => {
-                window.removeEventListener('mousemove', onMove, true);
-                window.removeEventListener('mouseup', onUp, true);
-                scheduleSave();
-            };
-            window.addEventListener('mousemove', onMove, true);
-            window.addEventListener('mouseup', onUp, true);
-        });
-    });
-    el.querySelectorAll('[data-minimax-add-segment]').forEach(btn => {
-        btn.onclick = e => {
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            pushUndo();
-            const current = smartMinimaxSelectedSegment(node);
-            const start = current ? Number(current.start || 0) + Number(current.duration || 0) : Math.max(0, Number(node.duration || 8));
-            const duration = Math.max(0.5, Number(current?.duration || node.duration || 8) || 8);
-            const seg = {id:uid('seg'), start, duration, prompt:'', refs:{image:[], video:[], audio:[]}, aspectRatio:current?.aspectRatio || node.aspectRatio || '16:9 (Widescreen)', megapixels:Number(current?.megapixels || node.megapixels || 0.4), trimIn:0, trimOut:duration, result:null, results:[]};
-            node.segments.push(seg);
-            node.selectedSegmentId = seg.id;
-            node.duration = Math.max(Number(node.duration || 0), seg.start + seg.duration);
-            render();
-            scheduleSave();
-        };
-    });
-    el.querySelectorAll('[data-minimax-delete-segment]').forEach(btn => {
-        bindFastMinimaxButton(btn, () => {
-            if((node.segments || []).length <= 1) return;
-            pushUndo();
-            const removeId = node.selectedSegmentId;
-            node.segments = node.segments.filter(seg => seg.id !== removeId);
-            node.selectedSegmentId = node.segments[0]?.id || '';
-            smartMinimaxEnsureSegment(node);
-            smartMinimaxCompactSegments(node);
-            el.querySelectorAll('[data-minimax-segment]').forEach(item => {
-                if(item.dataset.minimaxSegment === removeId) item.remove();
-            });
-            renderAfterMinimaxDelete();
-        });
-    });
-    el.querySelectorAll('[data-minimax-segment-delete]').forEach(btn => {
-        bindFastMinimaxButton(btn, () => {
-            if((node.segments || []).length <= 1) return;
-            const removeId = btn.dataset.minimaxSegmentDelete || '';
-            if(!removeId) return;
-            pushUndo();
-            node.segments = node.segments.filter(seg => seg.id !== removeId);
-            node.selectedSegmentId = node.segments.find(seg => seg.id === node.selectedSegmentId)?.id || node.segments[0]?.id || '';
-            smartMinimaxEnsureSegment(node);
-            smartMinimaxCompactSegments(node);
-            el.querySelectorAll('[data-minimax-segment]').forEach(item => {
-                if(item.dataset.minimaxSegment === removeId) item.remove();
-            });
-            renderAfterMinimaxDelete();
-        });
-    });
-    el.querySelectorAll('[data-minimax-number]').forEach(input => {
-        const key = input.dataset.minimaxNumber;
-        input.oninput = input.onchange = e => {
-            e.stopPropagation();
-            focusMinimaxNode();
-            const value = Number(input.value);
-            if(key === 'duration') node.duration = Math.max(0.5, Math.min(60, value || 8));
-            if(key === 'megapixels') node.megapixels = Math.max(0.1, Math.min(2, value || 0.4));
-            renderDynamicParams();
-            scheduleSave();
-        };
-    });
-    el.querySelectorAll('[data-minimax-select]').forEach(select => {
-        select.onchange = e => {
-            e.stopPropagation();
-            focusMinimaxNode();
-            const seg = smartMinimaxSelectedSegment(node);
-            if(seg) seg[select.dataset.minimaxSelect] = select.value;
-            node[select.dataset.minimaxSelect] = select.value;
-            renderDynamicParams();
-            scheduleSave();
-        };
-    });
-    el.querySelectorAll('[data-minimax-seg-number]').forEach(input => {
-        const key = input.dataset.minimaxSegNumber;
-        input.oninput = input.onchange = e => {
-            e.stopPropagation();
-            focusMinimaxNode();
-            const seg = smartMinimaxSelectedSegment(node);
-            if(!seg) return;
-            const value = Number(input.value);
-            if(key === 'start') seg.start = Math.max(0, value || 0);
-            if(key === 'duration'){
-                seg.duration = Math.max(0.5, value || 0.5);
-                seg.trimOut = Math.min(Math.max(Number(seg.trimOut || seg.duration), Number(seg.trimIn || 0) + 0.1), seg.duration);
-            }
-            if(key === 'trimIn') seg.trimIn = Math.max(0, Math.min(value || 0, Math.max(0, Number(seg.trimOut || seg.duration) - 0.1)));
-            if(key === 'trimOut') seg.trimOut = Math.max(Number(seg.trimIn || 0) + 0.1, Math.min(Number(seg.duration || 0.5), value || Number(seg.duration || 0.5)));
-            if(key === 'megapixels'){
-                seg.megapixels = Math.max(0.1, Math.min(2, value || 0.4));
-                node.megapixels = seg.megapixels;
-            }
-            node.duration = Math.max(Number(node.duration || 0), seg.start + seg.duration);
-            renderDynamicParams();
-            scheduleSave();
-            if(e.type === 'change') render();
-        };
-    });
-    const prompt = el.querySelector('[data-minimax-prompt]');
-    if(prompt){
-        bindScrollableText(prompt);
-        prompt.oninput = e => {
-            e.stopPropagation();
-            focusMinimaxNode();
-            const seg = smartMinimaxSelectedSegment(node);
-            if(seg) seg.prompt = prompt.value;
-            scheduleSave();
-        };
-    }
-    el.querySelectorAll('[data-minimax-run]').forEach(btn => {
-        btn.onclick = e => {
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            runMinimaxNode(btn.dataset.minimaxRun || node.id);
-        };
-    });
-    el.querySelectorAll('[data-minimax-play-timeline]').forEach(btn => {
-        btn.onclick = e => {
-            e.preventDefault();
-            e.stopPropagation();
-            const media = el.querySelector('[data-minimax-player]');
-            if(!node.timelinePlaying && media){
-                media.muted = Boolean(node.minimaxMuted);
-                media.play?.().catch(() => {});
-            }
-            focusMinimaxNode();
-            if(node.timelinePlaying){
-                node.timelinePlaying = false;
-                btn.innerHTML = '<i data-lucide="play"></i>';
-                smartMinimaxSyncPlayerDom(el, smartMinimaxSelectedSegment(node), Number(node.playhead || 0), false);
-                if(window.lucide) lucide.createIcons();
-                return;
-            }
-            node.timelinePlaying = true;
-            btn.innerHTML = '<i data-lucide="pause"></i>';
-            if(window.lucide) lucide.createIcons();
-            const total = smartMinimaxTimelineTotal(node);
-            const startTime = Math.min(Number(node.playhead || 0) || 0, Math.max(0, total - 0.01)) >= total - 0.01 ? 0 : (Number(node.playhead || 0) || 0);
-            const startedAt = performance.now();
-            smartMinimaxApplyTimelineTime(el, node, startTime, {syncPlayer:true, play:true});
-            const tick = now => {
-                if(!node.timelinePlaying || !el.isConnected) return;
-                const elapsed = (now - startedAt) / 1000;
-                let time = startTime + elapsed;
-                if(time >= total){
-                    time = total;
-                    node.timelinePlaying = false;
-                    btn.innerHTML = '<i data-lucide="play"></i>';
-                    if(window.lucide) lucide.createIcons();
-                }
-                smartMinimaxApplyTimelineTime(el, node, time, {syncPlayer:true, play:node.timelinePlaying});
-                if(node.timelinePlaying) requestAnimationFrame(tick);
-            };
-            requestAnimationFrame(tick);
-        };
-    });
-    el.querySelectorAll('[data-minimax-scrub-track]').forEach(track => {
-        track.addEventListener('wheel', e => {
-            if(!e.ctrlKey) return;
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            const current = Math.max(1, Math.min(8, Number(node.timelineZoom || 1)));
-            const next = Math.max(1, Math.min(8, current * (e.deltaY < 0 ? 1.12 : 0.89)));
-            if(Math.abs(next - current) < 0.01) return;
-            node.timelineZoom = next;
-            render();
-            scheduleSave();
-        }, {passive:false});
-        track.addEventListener('mousedown', e => {
-            if(e.target.closest('[data-minimax-segment],button,input,select,textarea,[data-minimax-trim]')) return;
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            const seek = event => {
-                const ruler = track.querySelector('.minimax-ruler') || track;
-                const content = ruler.querySelector('.minimax-track-content') || ruler;
-                const rect = ruler.getBoundingClientRect();
-                const x = (event.clientX - rect.left) + Number(ruler.scrollLeft || 0);
-                const ratio = Math.max(0, Math.min(1, x / Math.max(1, Number(content.scrollWidth || rect.width))));
-                const total = smartMinimaxTimelineTotal(node);
-                const time = ratio * total;
-                smartMinimaxApplyTimelineTime(el, node, time, {syncPlayer:true, play:false});
-            };
-            const onMove = event => {
-                event.preventDefault();
-                seek(event);
-            };
-            const onUp = () => {
-                window.removeEventListener('mousemove', onMove, true);
-                window.removeEventListener('mouseup', onUp, true);
-                scheduleSave();
-            };
-            seek(e);
-            window.addEventListener('mousemove', onMove, true);
-            window.addEventListener('mouseup', onUp, true);
-        });
-    });
-    el.querySelectorAll('[data-minimax-pane-resize]').forEach(handle => {
-        handle.addEventListener('mousedown', e => {
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            const mode = handle.dataset.minimaxPaneResize;
-            const startY = e.clientY;
-            const startX = e.clientX;
-            const startPreview = Math.max(130, Math.min(760, Number(node.minimaxPreviewH || 190)));
-            const startVideo = Math.max(44, Math.min(160, Number(node.minimaxVideoTrackH || 70)));
-            const startRef = Math.max(28, Math.min(160, Number(node.minimaxRefLaneH || 42)));
-            const startLibraryW = Math.max(178, Math.min(420, Number(node.minimaxLibraryW || 178)));
-            const main = el.querySelector('.minimax-wb-main');
-            const body = el.querySelector('.minimax-wb-body');
-            const onMove = event => {
-                const dy = (event.clientY - startY) / Math.max(0.1, viewport.scale || 1);
-                const dx = (event.clientX - startX) / Math.max(0.1, viewport.scale || 1);
-                if(mode === 'library'){
-                    node.minimaxLibraryW = Math.max(178, Math.min(420, Math.round(startLibraryW + dx)));
-                    body?.style.setProperty('--minimax-library-w', `${node.minimaxLibraryW}px`);
-                } else if(mode === 'preview'){
-                    node.minimaxPreviewH = Math.max(130, Math.min(760, Math.round(startPreview + dy)));
-                    main?.style.setProperty('--minimax-preview-h', `${node.minimaxPreviewH}px`);
-                } else if(mode === 'video'){
-                    node.minimaxVideoTrackH = Math.max(44, Math.min(160, Math.round(startVideo + dy)));
-                    main?.style.setProperty('--minimax-video-h', `${node.minimaxVideoTrackH}px`);
-                } else if(mode === 'refs'){
-                    node.minimaxRefLaneH = Math.max(28, Math.min(160, Math.round(startRef + dy)));
-                    const lanes = Math.max(1, Number(el.querySelector('.minimax-ref-track')?.style.getPropertyValue('--ref-lanes')) || 1);
-                    const nextRefH = Math.max(72, lanes * node.minimaxRefLaneH);
-                    main?.style.setProperty('--minimax-ref-lane-h', `${node.minimaxRefLaneH}px`);
-                    main?.style.setProperty('--minimax-ref-h', `${nextRefH}px`);
-                }
-            };
-            const onUp = () => {
-                window.removeEventListener('mousemove', onMove, true);
-                window.removeEventListener('mouseup', onUp, true);
-                scheduleSave();
-            };
-            window.addEventListener('mousemove', onMove, true);
-            window.addEventListener('mouseup', onUp, true);
-        });
-    });
-    el.querySelectorAll('[data-minimax-result-delete]').forEach(btn => {
-        btn.onclick = e => {
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            const seg = smartMinimaxSelectedSegment(node);
-            if(!seg?.result) return;
-            pushUndo();
-            seg.result = null;
-            render();
-            scheduleSave();
-        };
-    });
-    el.querySelectorAll('[data-minimax-ref-thumb-delete]').forEach(btn => {
-        bindFastMinimaxButton(btn, () => {
-            const [segId, rawIndex] = String(btn.dataset.minimaxRefThumbDelete || '').split(':');
-            const index = Number(rawIndex);
-            const seg = node.segments.find(item => item.id === segId);
-            if(!seg || !Array.isArray(seg.refItems) || !Number.isFinite(index)) return;
-            const removed = seg.refItems[index];
-            pushUndo();
-            node.selectedSegmentId = seg.id;
-            seg.refItems.splice(index, 1);
-            if(removed?.url) {
-                ['image','video','audio'].forEach(kind => {
-                    if(Array.isArray(seg.refs?.[kind])) seg.refs[kind] = seg.refs[kind].filter(ref => ref?.url !== removed.url);
-                });
-            }
-            const clip = btn.closest('.minimax-ref-clip');
-            if(clip) {
-                clip.classList.remove('has-ref');
-                clip.classList.add('is-empty');
-                clip.style.opacity = '.32';
-            }
-            renderAfterMinimaxDelete();
-        });
-    });
-    el.querySelectorAll('[data-minimax-export-selected]').forEach(btn => {
-        btn.onclick = async e => {
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            const seg = smartMinimaxSelectedSegment(node);
-            if(!seg?.result?.url) return;
-            const duration = Number(seg.duration || 0) || 0;
-            const start = Number(seg.trimIn || 0) || 0;
-            const end = Number(seg.trimOut || duration) || duration;
-            if(start <= 0 && (!end || end >= duration)) downloadPreviewFile(seg.result);
-            else await exportMinimaxTimeline(node, {selectedOnly:true});
-        };
-    });
-    el.querySelectorAll('[data-minimax-export-full]').forEach(btn => {
-        btn.onclick = async e => {
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            await exportMinimaxTimeline(node);
-        };
-    });
-    el.querySelectorAll('[data-minimax-use-material]').forEach(btn => {
-        btn.onclick = e => {
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            const item = node.materials?.[Number(btn.dataset.minimaxUseMaterial)];
-            const seg = smartMinimaxSelectedSegment(node);
-            if(!item?.url || !seg) return;
-            pushUndo();
-            smartMinimaxSetSegmentResult(node, seg, item);
-            render();
-            scheduleSave();
-        };
-    });
-    el.querySelectorAll('[data-minimax-download-material]').forEach(btn => {
-        btn.onclick = e => {
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            const item = node.materials?.[Number(btn.dataset.minimaxDownloadMaterial)];
-            if(item?.url) downloadPreviewFile(item);
-        };
-    });
-    el.querySelectorAll('[data-minimax-material]').forEach(card => {
-        card.addEventListener('mousedown', e => {
-            if(e.target.closest('[data-minimax-download-material], [data-minimax-use-material]')) return;
-            focusMinimaxNode();
-            e.stopPropagation();
-        });
-        card.addEventListener('dragstart', e => {
-            focusMinimaxNode();
-            e.dataTransfer.effectAllowed = 'copy';
-            e.dataTransfer.setData('application/x-minimax-material', JSON.stringify({nodeId:node.id, index:Number(card.dataset.minimaxMaterial)}));
-            const item = node.materials?.[Number(card.dataset.minimaxMaterial)];
-            if(item?.url) e.dataTransfer.setData('text/plain', item.url);
-        });
-    });
-    el.querySelectorAll('[data-minimax-asset]').forEach(card => {
-        card.addEventListener('mousedown', e => {
-            focusMinimaxNode();
-            e.stopPropagation();
-        });
-        card.addEventListener('dragstart', e => {
-            focusMinimaxNode();
-            e.dataTransfer.effectAllowed = 'copy';
-            e.dataTransfer.setData('application/x-minimax-asset', JSON.stringify({nodeId:node.id, index:Number(card.dataset.minimaxAsset), copy:Boolean(e.altKey)}));
-            const item = node.assetRefs?.[Number(card.dataset.minimaxAsset)];
-            if(item?.url) e.dataTransfer.setData('text/plain', item.url);
-        });
-    });
-    el.querySelectorAll('[data-minimax-toggle-mute]').forEach(btn => {
-        btn.onclick = e => {
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            node.minimaxMuted = !Boolean(node.minimaxMuted);
-            const media = el.querySelector('[data-minimax-player]');
-            if(media) media.muted = node.minimaxMuted;
-            btn.title = node.minimaxMuted ? 'Unmute' : 'Mute';
-            btn.innerHTML = `<i data-lucide="${node.minimaxMuted ? 'volume-x' : 'volume-2'}"></i>`;
-            if(window.lucide) lucide.createIcons();
-            scheduleSave();
-        };
-    });
-    el.querySelectorAll('[data-minimax-ref-drag]').forEach(card => {
-        card.addEventListener('mousedown', e => {
-            if(e.target.closest('[data-minimax-ref-thumb-delete]')) return;
-            focusMinimaxNode();
-            e.stopPropagation();
-        });
-        card.addEventListener('dragstart', e => {
-            focusMinimaxNode();
-            const [segmentId, rawIndex] = String(card.dataset.minimaxRefDrag || '').split(':');
-            const index = Number(rawIndex);
-            const seg = node.segments.find(item => item.id === segmentId);
-            const item = seg?.refItems?.[index];
-            if(!item?.url) return;
-            e.dataTransfer.effectAllowed = 'copyMove';
-            e.dataTransfer.setData('application/x-minimax-ref', JSON.stringify({nodeId:node.id, segmentId, index, copy:Boolean(e.altKey)}));
-            e.dataTransfer.setData('text/plain', item.url);
-        });
-    });
-    el.querySelectorAll('[data-minimax-add-segment]').forEach(btn => {
-        btn.addEventListener('mousedown', e => {
-            e.stopPropagation();
-        });
-    });
-    el.querySelectorAll('[data-minimax-drop-segment], [data-minimax-drop-result], [data-minimax-scrub-track], [data-minimax-ref-track], [data-minimax-player-stage], [data-minimax-asset-library]').forEach(target => {
-        target.addEventListener('dragover', e => {
-            const types = smartDropDataTypes(e.dataTransfer);
-            if(hasSmartImageDropData(e.dataTransfer) || hasSmartAssetDrag(e.dataTransfer) || types.includes('application/x-minimax-material') || types.includes('application/x-minimax-asset') || types.includes('application/x-minimax-ref')){
-                e.preventDefault();
-                e.dataTransfer.dropEffect = types.includes('application/x-minimax-ref') && !e.altKey ? 'move' : 'copy';
-            }
-        });
-        target.addEventListener('drop', async e => {
-            e.preventDefault();
-            e.stopPropagation();
-            focusMinimaxNode();
-            const dropTarget = e.target?.closest?.('[data-minimax-drop-segment]') || target;
-            const intoRefTrack = Boolean(target.closest?.('[data-minimax-ref-track],.minimax-ref-clip,.minimax-ref-label,.minimax-ref-gutter') || target.matches?.('[data-minimax-ref-track],.minimax-ref-label,.minimax-ref-gutter') || target.classList?.contains('minimax-ref-clip'));
-            const seg = smartMinimaxSegmentFromDropTarget(node, dropTarget, e) || (intoRefTrack ? smartMinimaxSelectedSegment(node) : null);
-            const items = await smartMinimaxDropItemsFromEvent(e);
-            const item = items.find(entry => ['video','image','audio'].includes(mediaKindForItem(entry))) || items[0];
-            if(!seg || !item?.url) return;
-            pushUndo();
-            node.selectedSegmentId = seg.id;
-            const types = smartDropDataTypes(e.dataTransfer);
-            const intoAssetLibrary = Boolean(target.closest?.('[data-minimax-asset-library]') || target.matches?.('[data-minimax-asset-library]'));
-            const intoVideoTrack = Boolean(target.closest?.('.minimax-video-track,.minimax-tl-clip') || target.classList?.contains('minimax-video-track') || target.classList?.contains('minimax-tl-clip'));
-            if(intoAssetLibrary){
-                smartMinimaxAddLibraryRefs(node, [item]);
-            } else if(types.includes('application/x-minimax-material') && !intoRefTrack && intoVideoTrack) {
-                smartMinimaxSetSegmentResult(node, seg, item);
-            } else {
-                const added = smartMinimaxAddSegmentRefs(node, seg, [item]);
-                const drag = item.__minimaxDrag;
-                const copyRef = e.altKey || Boolean(drag?.copy);
-                if(added && drag && !copyRef && drag.segmentId !== seg.id){
-                    const source = nodes.find(n => n.id === drag.nodeId && n.type === 'smart-minimax');
-                    const sourceSeg = source?.segments?.find(entry => entry.id === drag.segmentId);
-                    const existing = sourceSeg?.refItems?.[Number(drag.index)];
-                    if(existing?.url === item.url) {
-                        sourceSeg.refItems.splice(Number(drag.index), 1);
-                        ['image','video','audio'].forEach(kind => {
-                            if(Array.isArray(sourceSeg.refs?.[kind])) sourceSeg.refs[kind] = sourceSeg.refs[kind].filter(ref => ref?.url !== item.url);
-                        });
-                    }
-                }
-            }
-            render();
-            scheduleSave();
-        });
-    });
-}
 
 function bindScrollableText(el){
     if(!el || el.dataset.scrollBound === '1') return;
@@ -9615,7 +7065,6 @@ function bindNodeEvents(){
         const nodeForControls = nodes.find(n => n.id === id);
         if(nodeForControls?.type === 'smart-prompt') bindPromptNodeControls(el, nodeForControls);
         if(nodeForControls?.type === 'smart-loop') bindLoopNodeControls(el, nodeForControls);
-        if(nodeForControls?.type === 'smart-minimax') bindMinimaxNodeControls(el, nodeForControls);
         if(nodeForControls?.type === 'smart-group') {
             el.ondblclick = e => {
                 e.preventDefault();
@@ -10069,7 +7518,6 @@ function disconnectConnections(spec){
             toNode.inputNodeIds = toNode.inputNodeIds.filter(id => id !== conn.from);
         }
         const stillConnected = (canvas.connections || []).some(item => item.from === conn.from && item.to === conn.to && ['input','flow'].includes(item.kind || 'flow'));
-        if(toNode?.type === 'smart-minimax' && !stillConnected) smartMinimaxDetachSourceRefs(toNode, conn.from);
         if(toNode && ['input','flow'].includes(conn.kind || 'flow')) clearDetachedRunInputRefs(toNode);
         if((conn.kind || 'flow') === 'history'){
             const group = nodes.find(n => n.id === conn.to && isHistoryGroupNode(n) && n.historyFor === conn.from);
@@ -10115,7 +7563,6 @@ function finishConnectionErase(){
             toNode.inputNodeIds = toNode.inputNodeIds.filter(id => id !== conn.from);
         }
         const stillConnected = (canvas.connections || []).some(item => item.from === conn.from && item.to === conn.to && ['input','flow'].includes(item.kind || 'flow'));
-        if(toNode?.type === 'smart-minimax' && !stillConnected) smartMinimaxDetachSourceRefs(toNode, conn.from);
         if(toNode && ['input','flow'].includes(conn.kind || 'flow')) clearDetachedRunInputRefs(toNode);
         if((conn.kind || 'flow') === 'history'){
             const group = nodes.find(n => n.id === conn.to && isHistoryGroupNode(n) && n.historyFor === conn.from);
@@ -12967,15 +10414,6 @@ function updateComposer(){
         lastComposerNodeId = '';
         return;
     }
-    if(node?.type === 'smart-minimax'){
-        savePromptDraftForCurrent();
-        composer.classList.remove('open');
-        if(cascadeRunBtn) cascadeRunBtn.style.display = 'none';
-        activeComposerSubject = null;
-        lastComposerNodeId = '';
-        setPromptInputLocked(false);
-        return;
-    }
     composer.classList.toggle('open', !!node);
     if(!isSmartRunnableNode(node)){
         if(cascadeRunBtn) cascadeRunBtn.style.display = 'none';
@@ -13196,30 +10634,6 @@ function clearInputThumbDropMarkers(){
             delete el.dataset.dropPlacement;
             el.classList.remove('drop-before', 'drop-after', 'dragging');
         });
-}
-function bindInputThumbVideoActions(){
-    inputThumbsRow?.querySelectorAll('[data-manual-video-url]').forEach(btn => {
-        btn.onclick = async event => {
-            event.preventDefault();
-            event.stopPropagation();
-            try {
-                await setCurrentSmartManualVideoUrl();
-            } catch(e) {
-                toast((e.message || '设置视频网址失败').slice(0, 180));
-            }
-        };
-    });
-    inputThumbsRow?.querySelectorAll('[data-temp-sh-upload-video]').forEach(btn => {
-        btn.onclick = async event => {
-            event.preventDefault();
-            event.stopPropagation();
-            try {
-                await uploadCurrentSmartVideosToCloud();
-            } catch(e) {
-                toast((e.message || '云端上传失败').slice(0, 180));
-            }
-        };
-    });
 }
 function movedBeforeAfterIds(ids, movedId, targetId, placement='before'){
     const list = (ids || []).filter(Boolean);
@@ -13534,14 +10948,6 @@ async function uploadFiles(files){
 function appendImagesToSmartNode(uploaded, targetId='', opts={}){
     const images = [...(uploaded || [])].filter(file => file?.url);
     if(!images.length) return null;
-    const minimaxTarget = nodes.find(n => n.id === targetId && n.type === 'smart-minimax');
-    if(minimaxTarget){
-        smartMinimaxAddRefs(minimaxTarget, images.map(file => ({...file, kind:file.kind || mediaKindForItem(file)})));
-        selectedId = minimaxTarget.id;
-        render();
-        scheduleSave();
-        return minimaxTarget;
-    }
     const targetGroup = nodes.find(n => n.id === targetId && isSmartGroupNode(n));
     let node = targetGroup ? null : (nodes.find(n => n.id === targetId) || selectedNode());
     if(node && !isSmartImageNode(node)) node = null;
@@ -13612,15 +11018,6 @@ function sizeForRun(sourceSettings=settings){
     return apiImageSize(sourceSettings.ratio || 'square', sourceSettings.resolution || fallbackResolution, sourceSettings.customRatio || '', sourceSettings.customSize || '') || '1024x1024';
 }
 function expectedOutputSize(){
-    if(settings.engine === 'comfy'){
-        if(settings.comfyMode === 'text'){
-            const w = Number(settings.width) || 1024;
-            const h = Number(settings.height) || 1024;
-            return {w, h};
-        }
-        return {w:1024, h:1024};
-    }
-    if(settings.engine === 'runninghub') return {w:1024, h:1024};
     const sizeStr = settings.engine === 'modelscope'
         ? apiImageSize(settings.msRatio || 'square', settings.msResolution || '1k', settings.msCustomRatio || '', settings.msCustomSize || '')
         : sizeForRun();
@@ -13631,7 +11028,7 @@ function expectedOutputSize(){
     return {w:1024, h:1024};
 }
 function explicitRequestOutputSizeForPending(){
-    if(isApiLikeEngine(settings.engine) && settings.apiKind !== 'video'){
+    if(isApiLikeEngine(settings.engine)){
         const parsed = parseSizeValue(sizeForRun());
         if(parsed) return {w:Number(parsed.width) || 1024, h:Number(parsed.height) || 1024};
     }
@@ -13639,11 +11036,6 @@ function explicitRequestOutputSizeForPending(){
         const sizeStr = apiImageSize(settings.msRatio || 'square', settings.msResolution || '1k', settings.msCustomRatio || '', settings.msCustomSize || '');
         const parsed = parseSizeValue(sizeStr);
         if(parsed) return {w:Number(parsed.width) || 1024, h:Number(parsed.height) || 1024};
-    }
-    if(settings.engine === 'comfy' && settings.comfyMode === 'text'){
-        const w = Number(settings.width) || 1024;
-        const h = Number(settings.height) || 1024;
-        return {w, h};
     }
     return null;
 }
@@ -14625,9 +12017,6 @@ function buildPromptRequest(node, overrideDefaultImages=null, consumeDefault=fal
     const groupPrompt = isSmartGroupNode(node) ? textForNode(node, ctx).trim() : '';
     const inputPrompt = inputPromptTextFor(node, ctx).trim();
     if(groupPrompt || inputPrompt) body = [groupPrompt, inputPrompt, body].filter(Boolean).join('\n\n');
-    if(!body && settings.engine === 'runninghub'){
-        body = rhDefaultPromptSuggestion();
-    }
     const displayPrompt = originalPrompt || body;
     if(hasMentionToken && refs.length){
         const mapText = refs.map((img, i) => `图${i + 1}：${img.name || `图片${i + 1}`}`).join('\n');
@@ -15389,52 +12778,6 @@ function loadNodePromptDraftToInput(node){
         else setPromptText(node?.runPrompt || '');
     }
 }
-async function createSmartComfyTask(payload){
-    const res = await fetch('/api/canvas-comfy-tasks', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify(payload)
-    });
-    if(!res.ok) throw new Error(await smartResponseErrorMessage(res, tr('smart.errRunFailed')));
-    return res.json();
-}
-async function waitSmartComfyTaskResult(taskId){
-    if(!taskId) throw new Error(tr('smart.errRunFailed'));
-    while(true){
-        const res = await fetch(`/api/canvas-comfy-tasks/${encodeURIComponent(taskId)}`);
-        if(!res.ok) throw new Error(await smartResponseErrorMessage(res, tr('smart.errRunFailed')));
-        const data = await res.json();
-        const readyResult = data?.result || data?.outputs || data?.images || data?.videos || data?.audios || data?.texts;
-        if(readyResult && resultMediaUrls(readyResult).length) return data.result || data;
-        if(data.status === 'succeeded') return data.result || {};
-        if(data.status === 'failed') throw new Error(data.error || tr('smart.errRunFailed'));
-        await sleep(1600);
-    }
-}
-async function runQueuedSmartComfyGenerate(payload){
-    const task = await createSmartComfyTask(payload);
-    return waitSmartComfyTaskResult(task.task_id);
-}
-function comfyParamsFromWorkflowValues(config, values={}){
-    const params = {};
-    (config?.fields || []).forEach(field => {
-        if(!field?.node || !field?.input) return;
-        let value = values[field.id];
-        if(value === undefined) value = field.default;
-        if(field.type === 'number' || field.type === 'slider'){
-            const n = Number(value);
-            if(Number.isFinite(n)) value = field.step && Number(field.step) < 1 ? n : Math.round(n);
-        } else if(field.type === 'boolean'){
-            value = Boolean(value);
-        } else if(field.type === 'dropdown' && typeof value === 'string'){
-            const s = value.trim();
-            if(s && /^-?\d+(?:\.\d+)?(?:e-?\d+)?$/i.test(s)) value = s.includes('.') || /e/i.test(s) ? Number(s) : parseInt(s, 10);
-        }
-        params[field.node] = params[field.node] || {};
-        params[field.node][field.input] = value;
-    });
-    return params;
-}
 function buildPromptRequestForNode(node, defaultImages, ctx=smartLoopContext){
     const oldHtml = promptInput.innerHTML;
     loadNodePromptDraftToInput(node);
@@ -15446,21 +12789,6 @@ function buildPromptRequestForNode(node, defaultImages, ctx=smartLoopContext){
 }
 async function generateUrlsForCurrentSettings(node, prompt, refs, runSettings=settings){
     const activeSettings = runSettings || settings;
-    if(activeSettings.engine === 'comfy') return generateComfyUrlsWithSettings(activeSettings, prompt, refs);
-    if(activeSettings.engine === 'runninghub' && runningHubSelectedModel(activeSettings)){
-        const taskResult = await runApiGeneration(prompt, refs, runningHubModelApiSettings(activeSettings));
-        const taskIds = Array.isArray(taskResult?.taskIds) ? taskResult.taskIds : [];
-        if(taskIds.length){
-            const settled = await Promise.all(taskIds.map(taskId => pollSmartCanvasTask(taskId)));
-            const urls = settled.flatMap(result => resultMediaUrls(result?.image_items?.length ? result.image_items : (result?.images?.length ? result.images : result))).filter(Boolean);
-            return {urls, kind:mediaKindForUrls(urls, 'image')};
-        }
-        const urls = resultMediaUrls(taskResult);
-        return {urls, kind:mediaKindForUrls(urls, 'image')};
-    }
-    if(isApiLikeEngine(activeSettings.engine) && activeSettings.apiKind === 'video'){
-        return {urls:await runApiVideoGeneration(prompt, refs, activeSettings), kind:'video'};
-    }
     if(isApiLikeEngine(activeSettings.engine)){
         const taskResult = await runApiGeneration(prompt, refs, activeSettings);
         const taskIds = Array.isArray(taskResult?.taskIds) ? taskResult.taskIds : [];
@@ -15472,67 +12800,10 @@ async function generateUrlsForCurrentSettings(node, prompt, refs, runSettings=se
         const urls = resultMediaUrls(taskResult);
         return {urls, kind:mediaKindForUrls(urls, 'image')};
     }
-    const urls = activeSettings.engine === 'runninghub'
-        ? await runRunningHubGeneration(prompt, refs, activeSettings)
-        : activeSettings.engine === 'modelscope'
-            ? await runModelscopeGeneration(prompt, refs, activeSettings)
-            : [];
+    const urls = activeSettings.engine === 'modelscope'
+        ? await runModelscopeGeneration(prompt, refs, activeSettings)
+        : [];
     return {urls, kind:mediaKindForUrls(urls, 'image')};
-}
-async function generateComfyUrlsWithSettings(runSettings, prompt, refs){
-    const allRefs = refs || [];
-    const imageRefs = imageRefsOnly(allRefs);
-    const mode = runSettings.comfyMode || 'text';
-    if(mode === 'text'){
-        const data = await runQueuedSmartComfyGenerate({prompt, width:Number(runSettings.width || 1024), height:Number(runSettings.height || 1024), workflow_json:'Z-Image.json', type:'zimage', client_id:smartClientId});
-        const urls = resultMediaUrls(data);
-        return {urls, kind:mediaKindForUrls(urls, 'image')};
-    }
-    if(mode === 'enhance'){
-        if(!imageRefs.length) throw new Error(tr('smart.errEnhanceNeedRefs'));
-        const inputName = await comfyNameForRef(imageRefs[0]);
-        const data = await runQueuedSmartComfyGenerate({workflow_json:'Z-Image-Enhance.json', type:'enhance', params:{"15":{image:inputName},"204":{value:Number(runSettings.enhanceStrength ?? 0.5)}}, client_id:smartClientId});
-        const urls = resultMediaUrls(data);
-        return {urls, kind:mediaKindForUrls(urls, 'image')};
-    }
-    if(mode === 'edit'){
-        if(!imageRefs.length) throw new Error(tr('smart.errEditNeedRefs'));
-        const names = [];
-        for(const ref of imageRefs.slice(0, 3)) names.push(await comfyNameForRef(ref));
-        const data = await runQueuedSmartComfyGenerate({prompt, workflow_json:'Flux2-Klein.json', type:'klein', params:{"168":{text:prompt},"158":{noise_seed:Math.floor(Math.random()*1000000)},"278":{image:names[0] || ""},"270":{image:names[1] || ""},"292":{image:names[2] || ""},"313":{value:Boolean(names[1])},"314":{value:Boolean(names[2])}}, client_id:smartClientId});
-        const urls = resultMediaUrls(data);
-        return {urls, kind:mediaKindForUrls(urls, 'image')};
-    }
-    const workflowName = runSettings.comfyWorkflow || comfyWorkflows[0]?.name || '';
-    if(!workflowName) throw new Error(tr('smart.errNeedWorkflow'));
-    const wf = await fetch(`/api/workflows/${encodeURIComponent(workflowName)}`).then(async r => {
-        if(!r.ok) throw new Error(await r.text());
-        return r.json();
-    });
-    const fields = wf.config?.fields || [];
-    const values = {};
-    fields.filter(f => comfyFieldKind(f) === 'prompt').forEach((field, index) => {
-        values[field.id] = index === 0 ? prompt : (field.default ?? '');
-    });
-    const assignMediaFields = async (mediaFields, mediaRefs) => {
-        for(let i = 0; i < mediaFields.length && i < mediaRefs.length; i++){
-            values[mediaFields[i].id] = await comfyNameForRef(mediaRefs[i]);
-        }
-    };
-    await assignMediaFields(fields.filter(f => comfyFieldKind(f) === 'image'), imageRefs);
-    await assignMediaFields(fields.filter(f => comfyFieldKind(f) === 'video'), videoRefsOnly(allRefs));
-    await assignMediaFields(fields.filter(f => comfyFieldKind(f) === 'audio'), audioRefsOnly(allRefs));
-    fields.filter(f => comfyFieldKind(f) === 'setting').forEach(field => {
-        if(comfyRandomEnabledField(field) && smartComfyRandomActiveFor(runSettings, field.id)){
-            values[field.id] = smartComfyRandomValue(field);
-        } else {
-            values[field.id] = runSettings.comfyParams?.[field.id] ?? field.default;
-        }
-    });
-    const result = await runQueuedSmartComfyGenerate({prompt, workflow_json:workflowName, params:comfyParamsFromWorkflowValues(wf.config || {fields:[]}, values), type:'workflow-custom', client_id:smartClientId});
-    const urls = resultMediaUrls(result);
-    const fallbackKind = result.videos?.length ? 'video' : result.audios?.length ? 'audio' : result.texts?.length ? 'text' : 'image';
-    return {urls, kind:mediaKindForUrls(urls, fallbackKind)};
 }
 async function runCascadeStepIntoNode(sourceNode, targetNode, inputRefs, ctx=smartLoopContext){
     const outputNode = targetNode || sourceNode;
@@ -15571,7 +12842,7 @@ async function runCascadeStepIntoNode(sourceNode, targetNode, inputRefs, ctx=sma
         meta.promptHtml = requestNode.promptDraftHtml;
         meta.promptText = requestNode.promptDraftText || request.displayPrompt || '';
     }
-    const logKind = isApiLikeEngine(runSettings.engine) && runSettings.apiKind === 'video' ? 'video' : 'image';
+    const logKind = 'image';
     const runLog = smartRunSnapshot(requestNode, prompt, request.refs || [], logKind);
     const runLogStart = nowMs();
     const targetPromptState = {
@@ -15659,10 +12930,10 @@ async function runLoopRoundIntoSlot(loopNode, rootNode, outputSlot, loopIndex, c
             settings:JSON.parse(JSON.stringify(runSettings)),
             createdAt:Date.now()
         };
-        const logKind = isApiLikeEngine(runSettings.engine) && runSettings.apiKind === 'video' ? 'video' : 'image';
+        const logKind = 'image';
         const runLog = smartRunSnapshot(rootNode, prompt, request.refs || [], logKind);
         const runLogStart = nowMs();
-        const expectedCount = isApiLikeEngine(runSettings.engine) && runSettings.apiKind !== 'video'
+        const expectedCount = isApiLikeEngine(runSettings.engine)
             ? Math.max(1, Math.min(8, Number(runSettings.count || 1)))
             : 1;
         outputSlot.queued = false;
@@ -15680,7 +12951,7 @@ async function runLoopRoundIntoSlot(loopNode, rootNode, outputSlot, loopIndex, c
         render();
         settings = previousSettings;
         let result;
-        if(isApiLikeEngine(runSettings.engine) && runSettings.apiKind !== 'video'){
+        if(isApiLikeEngine(runSettings.engine)){
             const taskResult = await runApiGeneration(prompt, request.refs || [], runSettings);
             const taskIds = Array.isArray(taskResult?.taskIds) ? taskResult.taskIds : [];
             if(!taskIds.length) throw new Error(tr('smart.errRunFailed'));
@@ -15712,7 +12983,7 @@ async function runLoopRoundIntoSlot(loopNode, rootNode, outputSlot, loopIndex, c
         }
         if(!result.urls?.length) throw new Error(result.kind === 'video' ? tr('smart.errNoOutVideos') : tr('smart.errNoOutImages'));
         let additions;
-        if(isApiLikeEngine(runSettings.engine) && runSettings.apiKind !== 'video'){
+        if(isApiLikeEngine(runSettings.engine)){
             additions = (outputSlot.images || []).map(img => stripImageGenerationMeta({...img})).filter(img => img?.url);
             if(meta) attachRunMeta(outputSlot, meta);
         } else {
@@ -15796,8 +13067,7 @@ function requestSmartCascadeStop(loopId=''){
     render();
 }
 function smartCascadeParallelLimit(chain=[]){
-    const hasComfy = (chain || []).some(node => smartSettingsForNode(node)?.engine === 'comfy');
-    return hasComfy ? Math.max(1, Math.min(6, Number(comfyInstanceCount) || 1)) : 6;
+    return 6;
 }
 async function runSmartCascadeRoundsWithLimit(roundIndexes, limit, runner, runState=null){
     let next = 0;
@@ -16040,7 +13310,6 @@ function runSmartCascadeFromLoop(loopId){
 }
 async function runGeneration(){
     const node = selectedNode();
-    if(node?.type === 'smart-minimax') return runMinimaxNode(node.id);
     const request = buildPromptRequest(node, null, true, smartLoopContext);
     const prompt = request.prompt.trim();
     if(!node) return;
@@ -16057,7 +13326,7 @@ async function runGeneration(){
     const outpaintSize = node?.outpaintSize && Number(node.outpaintSize.width) > 0 && Number(node.outpaintSize.height) > 0
         ? {width:Math.round(Number(node.outpaintSize.width)), height:Math.round(Number(node.outpaintSize.height))}
         : null;
-    if(outpaintSize && isApiLikeEngine(settings.engine) && settings.apiKind !== 'video'){
+    if(outpaintSize && isApiLikeEngine(settings.engine)){
         settings = {
             ...settings,
             resolution:'custom',
@@ -16068,16 +13337,12 @@ async function runGeneration(){
         };
     }
     const meta = snapshotRunMeta(prompt, node.id, request.displayPrompt, refs);
-    const logKind = isApiLikeEngine(settings.engine) && settings.apiKind === 'video' ? 'video' : 'image';
+    const logKind = 'image';
     const runLog = smartRunSnapshot(node, prompt, refs, logKind);
     rememberRecentSmartSettings(settings, node);
     const runLogStart = nowMs();
-    const expectedCount = settings.engine === 'runninghub'
-        ? 1
-        : settings.engine === 'comfy'
-        ? (settings.comfyMode === 'text' || settings.comfyMode === 'enhance' || settings.comfyMode === 'edit' || settings.comfyMode === 'custom' ? 1 : 1)
-        : Math.max(1, Math.min(8, Number(settings.count || 1)));
-    const apiConcurrentRun = isApiLikeEngine(settings.engine) || settings.engine === 'runninghub' || settings.engine === 'modelscope' || settings.engine === 'comfy';
+    const expectedCount = Math.max(1, Math.min(8, Number(settings.count || 1)));
+    const apiConcurrentRun = isApiLikeEngine(settings.engine) || settings.engine === 'modelscope';
     const nodeHasImages = isSmartGroupNode(node) ? imagesForNode(node).some(img => img?.url) : (node.images || []).some(img => img?.url);
     const workflowModeRun = smartImageUsesWorkflowInput(node, smartLoopContext);
     const sourceVisualState = isSmartImageNode(node) && nodeHasImages && !workflowModeRun ? {
@@ -16119,33 +13384,10 @@ async function runGeneration(){
     }
     render();
     try {
-        if(settings.engine === 'comfy'){
-            await runComfyGeneration(pendingNode, prompt, refs, pendingNode, pendingMeta);
-            if(sourceVisualState) restoreSourceVisualState(node, sourceVisualState);
-            addSmartGenerationLog({run:runLog, outputs:pendingNode.images || [], runMs:nowMs() - runLogStart});
-            settings = previousSettings;
-            return;
-        }
-        if(isApiLikeEngine(settings.engine) && settings.apiKind === 'video'){
-            const outVideos = await runApiVideoGeneration(prompt, refs);
-            if(!outVideos.length) throw new Error(tr('smart.errNoOutVideos'));
-            finalizePendingNode(pendingNode, outVideos, pendingMeta, 'video');
-            if(sourceVisualState) restoreSourceVisualState(node, sourceVisualState);
-            addSmartGenerationLog({run:runLog, outputs:outVideos, runMs:nowMs() - runLogStart});
-            clearPromptInput({preserveDraft:true});
-            settings = previousSettings;
-            scheduleSave();
-            return;
-        }
-        const rhModelMode = settings.engine === 'runninghub' && Boolean(runningHubSelectedModel(settings));
-        const outImages = rhModelMode
-            ? await runApiGeneration(prompt, refs, runningHubModelApiSettings(settings))
-            : settings.engine === 'runninghub'
-                ? await runRunningHubGeneration(prompt, refs)
-                : settings.engine === 'modelscope'
-                ? await runModelscopeGeneration(prompt, refs)
-                : await runApiGeneration(prompt, refs);
-        if(isApiLikeEngine(settings.engine) || rhModelMode){
+        const outImages = settings.engine === 'modelscope'
+            ? await runModelscopeGeneration(prompt, refs)
+            : await runApiGeneration(prompt, refs);
+        if(isApiLikeEngine(settings.engine)){
             const taskIds = Array.isArray(outImages?.taskIds) ? outImages.taskIds : [];
             if(!taskIds.length) throw new Error(tr('smart.errRunFailed'));
             pendingNode.pendingTasks = taskIds.map(taskId => ({taskId, kind:'image', providerId:outImages.providerId, model:outImages.model}));
@@ -16257,12 +13499,6 @@ async function runPromptLLMNode(nodeId){
         render();
     }
 }
-function comfyFieldKind(field){
-    if(['image','video','audio'].includes(field?.type)) return field.type;
-    const key = `${field?.input || ''} ${field?.name || ''}`.toLowerCase();
-    if(field?.type === 'textarea' || /prompt|text|提示词|正向|负向/.test(key)) return 'prompt';
-    return 'setting';
-}
 async function runApiGeneration(prompt, refs, runSettings=settings){
     if(!runSettings.provider_id || !runSettings.model) throw new Error(tr('smart.errNoApiModel'));
     const count = Math.max(1, Math.min(8, Number(runSettings.count || 1)));
@@ -16298,131 +13534,6 @@ function smartDetailedError(message, details={}){
     err.smartDetails = details || {};
     if(details?.taskId) err.taskId = details.taskId;
     return err;
-}
-function runningHubPayloadError(stage, data, fallback, extra={}){
-    const detailObj = data?.detail && typeof data.detail === 'object' ? data.detail : null;
-    const rawDetail = detailObj?.message || data?.detail || data?.error || data?.message || data?.failReason || data?.msg || fallback || tr('smart.rhFailed');
-    const detail = typeof rawDetail === 'object' ? smartCompactJson(rawDetail, 1200) : String(rawDetail || '');
-    const raw = detailObj?.raw || data?.raw || data?.data?.raw || data;
-    const code = detailObj?.code ?? data?.code ?? data?.data?.code ?? raw?.code ?? '';
-    const taskId = detailObj?.taskId || detailObj?.task_id || data?.taskId || data?.task_id || data?.data?.taskId || extra.taskId || '';
-    const parts = [`RunningHub ${stage}失败`, detail].filter(Boolean);
-    if(taskId) parts.push(`taskId=${taskId}`);
-    if(code !== '') parts.push(`code=${code}`);
-    return smartDetailedError(parts.join('：'), {stage, taskId, code, raw, ...(detailObj || {}), ...extra});
-}
-async function runRunningHubGeneration(prompt, refs, runSettings=settings){
-    const ref = selectedRunningHubRef(runSettings);
-    if(!ref) throw new Error(tr('smart.rhNeedConfig'));
-    const fields = rhActiveFields(runSettings);
-    if(!fields.length) throw new Error(tr('smart.rhNeedFields'));
-    const randomValues = {};
-    const mode = ref.kind;
-    const media = rhMediaForRun(prompt, refs);
-    const nodeInfoList = await rhBuildNodeInfoList(media, runSettings, randomValues);
-    const workflowExtras = mode === 'workflow' ? await rhBuildWorkflowRequestExtras(media, nodeInfoList, runSettings) : {};
-    const endpoint = mode === 'workflow' ? '/api/runninghub/workflow-submit' : '/api/runninghub/submit';
-    const body = mode === 'workflow'
-        ? {workflowId:ref.id, nodeInfoList, useWallet:runSettings.rhPayment === 'wallet', ...workflowExtras}
-        : {webappId:ref.id, nodeInfoList, instanceType:runSettings.rhInstanceType || '', useWallet:runSettings.rhPayment === 'wallet'};
-    if(mode === 'workflow') runSettings.rhWorkflowId = ref.id;
-    else runSettings.rhAppId = ref.id;
-    runSettings.rhMode = mode;
-    const submit = await fetch(endpoint, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify(body)
-    }).then(async r => {
-        const data = await r.clone().json().catch(async () => ({detail:await r.text().catch(() => '')}));
-        if(!r.ok || data.success === false) throw runningHubPayloadError('提交', data, tr('smart.rhFailed'), {
-            endpoint,
-            workflowId:body.workflowId || '',
-            webappId:body.webappId || '',
-            nodeInfoList:nodeInfoList.slice(0, 40),
-            hasWorkflow:Boolean(body.workflow)
-        });
-        return data.data || data;
-    });
-    const taskId = submit.taskId;
-    if(!taskId) throw new Error(tr('smart.rhNoTaskId'));
-    runSettings.rhTaskId = taskId;
-    const useWallet = runSettings.rhPayment === 'wallet';
-    for(let i = 0; i < 720; i++){
-        await sleep(2500);
-        const data = await fetch(`/api/runninghub/query?taskId=${encodeURIComponent(taskId)}&useWallet=${useWallet ? '1' : '0'}`).then(async r => {
-            const json = await r.clone().json().catch(async () => ({detail:await r.text().catch(() => '')}));
-            if(!r.ok || json.success === false) throw runningHubPayloadError('查询', json, tr('smart.rhFailed'), {taskId});
-            return json.data || json;
-        });
-        if(data.status === 'SUCCESS'){
-            const urls = resultMediaUrls(data.image_items?.length ? data.image_items : (data.urls || []));
-            if(!urls.length) throw new Error(tr('smart.rhOutputsEmpty'));
-            return urls;
-        }
-        if(data.status === 'FAILED') throw runningHubPayloadError('执行', data, data.failReason || tr('smart.rhFailed'), {taskId});
-    }
-    throw new Error(tr('smart.rhTimeout'));
-}
-async function runApiVideoGeneration(prompt, refs, runSettings=settings){
-    if(!runSettings.videoModel) throw new Error(tr('smart.errNoVideoModel'));
-    try {
-        const uploadedRefs = applyUploadedUrlsToSmartRefs(refs, runSettings);
-        const trustedMode = Boolean(runSettings.videoTrustedAsset);
-        const trustedSource = trustedMode ? (['library','cloud','manual'].includes(runSettings.videoTrustedSource) ? runSettings.videoTrustedSource : 'library') : 'none';
-        // 仅「素材库链接」来源才走 asset:// 认证地址 + 后端可信素材路由；上传云端/手动网址走普通直链。
-        const useAssetUris = trustedSource === 'library';
-        const targetPlatform = videoProviderPlatform(runSettings.videoProvider || 'comfly');
-        let mismatchedAsset = false;
-        const effUrl = ref => {
-            const uris = (ref && ref.asset_uris && typeof ref.asset_uris === 'object') ? ref.asset_uris : null;
-            if(useAssetUris && uris && Object.keys(uris).length){
-                // asset:// 与平台绑定：取当前视频平台对应的认证地址；该素材没注册到这个平台就回退本地 url
-                if(targetPlatform && uris[targetPlatform]) return uris[targetPlatform];
-                mismatchedAsset = true;
-            }
-            return ref?.url;
-        };
-        const refImages = imageRefsOnly(uploadedRefs).map((ref, i) => {
-            const item = {url:effUrl(ref), name:ref.name || `图${i + 1}`};
-            if(runSettings.videoUseFrameRoles){
-                if(i === 0) item.role = 'first_frame';
-                else if(i === 1) item.role = 'last_frame';
-            }
-            return item;
-        });
-        // 云端上传/手动链接只替换素材 URL，不能改变原引用的媒体类型。
-        // 否则图片的云端 URL 会被无条件塞进 videos，导致 APIMart 把 PNG 当参考视频解析。
-        const refVideos = videoRefsOnly(uploadedRefs).map(ref => effUrl(ref)).filter(Boolean);
-        const refAudios = audioRefsOnly(uploadedRefs).map(ref => effUrl(ref)).filter(Boolean).slice(0, 3);
-        if(mismatchedAsset) toast('部分认证素材属于其它平台，已回退为普通素材。切换到对应平台的视频接口才能用 asset:// 认证地址。');
-        const payload = {
-            prompt,
-            provider_id: runSettings.videoProvider || 'comfly',
-            model: runSettings.videoModel || 'veo3-fast',
-            duration: Math.max(1, Math.min(60, Number(runSettings.videoDuration) || 5)),
-            aspect_ratio: runSettings.videoAspect || '16:9',
-            resolution: runSettings.videoResolution || '',
-            images: refImages,
-            videos: refVideos,
-            audios: refAudios,
-            enhance_prompt: Boolean(runSettings.videoEnhancePrompt),
-            enable_upsample: Boolean(runSettings.videoEnableUpsample),
-            watermark: Boolean(runSettings.videoWatermark),
-            camerafixed: Boolean(runSettings.videoCameraFixed),
-            generate_audio: Boolean(runSettings.videoGenerateAudio),
-            multimodal: Boolean(runSettings.videoMultimodal),
-            trusted_asset: useAssetUris
-        };
-        const result = await fetch('/api/canvas-video', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify(payload)
-        }).then(async r => { if(!r.ok) throw new Error(await smartResponseErrorMessage(r, tr('smart.errRunFailed'))); return r.json(); });
-        if(result && result.jimeng_pending) throw new JimengPendingSignal({submitId:result.submit_id, kind:result.kind || 'video', queueInfo:result.queue_info, message:result.message});
-        return resultMediaUrls(result);
-    } finally {
-        transientSmartCloudLinks = [];
-    }
 }
 async function runModelscopeGeneration(prompt, refs, runSettings=settings){
     refs = imageRefsOnly(refs);
@@ -16466,385 +13577,6 @@ async function urlToBase64(url){
     });
 }
 function sleep(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
-async function runComfyGeneration(node, prompt, refs, pendingNode, meta){
-    const allRefs = refs || [];
-    refs = imageRefsOnly(allRefs);
-    const mode = settings.comfyMode || 'text';
-    if(mode === 'text') return runComfyText(node, prompt, pendingNode, meta);
-    if(mode === 'enhance') return runComfyEnhance(node, refs, pendingNode, meta);
-    if(mode === 'edit') return runComfyEdit(node, prompt, refs, pendingNode, meta);
-    const workflowName = settings.comfyWorkflow || comfyWorkflows[0]?.name || '';
-    if(!workflowName) throw new Error(tr('smart.errNeedWorkflow'));
-    const wf = await fetch(`/api/workflows/${encodeURIComponent(workflowName)}`).then(async r => {
-        if(!r.ok) throw new Error(await r.text());
-        return r.json();
-    });
-    const fields = wf.config?.fields || [];
-    const values = {};
-    fields.filter(f => comfyFieldKind(f) === 'prompt').forEach((field, index) => {
-        values[field.id] = index === 0 ? prompt : (field.default ?? '');
-    });
-    const assignMediaFields = async (mediaFields, mediaRefs) => {
-        for(let i = 0; i < mediaFields.length && i < mediaRefs.length; i++){
-            values[mediaFields[i].id] = await comfyNameForRef(mediaRefs[i]);
-        }
-    };
-    await assignMediaFields(fields.filter(f => comfyFieldKind(f) === 'image'), refs);
-    await assignMediaFields(fields.filter(f => comfyFieldKind(f) === 'video'), videoRefsOnly(allRefs));
-    await assignMediaFields(fields.filter(f => comfyFieldKind(f) === 'audio'), audioRefsOnly(allRefs));
-    fields.filter(f => comfyFieldKind(f) === 'setting').forEach(field => {
-        if(comfyRandomEnabledField(field) && smartComfyRandomActive(field.id)){
-            values[field.id] = smartComfyRandomValue(field);
-        } else {
-            values[field.id] = settings.comfyParams?.[field.id] ?? field.default;
-        }
-    });
-    const result = await runQueuedSmartComfyGenerate({prompt, workflow_json:workflowName, params:comfyParamsFromWorkflowValues(wf.config || {fields:[]}, values), type:'workflow-custom', client_id:smartClientId});
-    const urls = resultMediaUrls(result);
-    if(!urls.length) throw new Error(tr('smart.errComfyNoImages'));
-    const kind = mediaKindForUrls(urls, result.videos?.length ? 'video' : result.audios?.length ? 'audio' : result.texts?.length ? 'text' : 'image');
-    const ext = kind === 'video' ? 'mp4' : kind === 'audio' ? 'mp3' : 'png';
-    const out = urls.map((url, i) => ({url, name:`comfy-${i + 1}.${ext}`, kind})).filter(x => x.url);
-    if(!out.length) throw new Error(tr('smart.errComfyEmpty'));
-    const outputUrls = out.map(o => o.url);
-    if(pendingNode){
-        finalizePendingNode(pendingNode, outputUrls, meta, kind);
-    } else {
-        const created = createNode((node.x || 0) + nodeRect(node).width + 40, node.y || 0, out);
-        attachRunMeta(created, meta);
-        addConnection(node.id, created.id);
-    }
-    clearPromptInput({preserveDraft:true});
-    scheduleSave();
-}
-async function runComfyText(node, prompt, pendingNode, meta){
-    const data = await runQueuedSmartComfyGenerate({prompt, width:Number(settings.width || 1024), height:Number(settings.height || 1024), workflow_json:'Z-Image.json', type:'zimage', client_id:smartClientId});
-    const out = data.outputs || data.images || [];
-    if(!out.length) throw new Error(tr('smart.errComfyNoImages'));
-    if(pendingNode){
-        finalizePendingNode(pendingNode, out, meta);
-    } else {
-        const created = createNode((node.x || 0) + nodeRect(node).width + 40, node.y || 0, out.map((url, i) => ({url, name:`comfy-${i + 1}.png`})));
-        attachRunMeta(created, meta);
-        addConnection(node.id, created.id);
-    }
-    clearPromptInput({preserveDraft:true});
-    scheduleSave();
-}
-async function runComfyEnhance(node, refs, pendingNode, meta){
-    if(!refs.length) throw new Error(tr('smart.errEnhanceNeedRefs'));
-    const inputName = await comfyNameForRef(refs[0]);
-    const data = await runQueuedSmartComfyGenerate({workflow_json:'Z-Image-Enhance.json', type:'enhance', params:{"15":{image:inputName},"204":{value:Number(settings.enhanceStrength ?? 0.5)}}, client_id:smartClientId});
-    const out = data.outputs || data.images || [];
-    if(!out.length) throw new Error(tr('smart.errComfyNoImages'));
-    if(pendingNode){
-        finalizePendingNode(pendingNode, out, meta);
-    } else {
-        const created = createNode((node.x || 0) + nodeRect(node).width + 40, node.y || 0, out.map((url, i) => ({url, name:`enhance-${i + 1}.png`})));
-        attachRunMeta(created, meta);
-        addConnection(node.id, created.id);
-    }
-    scheduleSave();
-}
-async function runComfyEdit(node, prompt, refs, pendingNode, meta){
-    if(!refs.length) throw new Error(tr('smart.errEditNeedRefs'));
-    const names = [];
-    for(const ref of refs.slice(0, 3)) names.push(await comfyNameForRef(ref));
-    const data = await runQueuedSmartComfyGenerate({prompt, workflow_json:'Flux2-Klein.json', type:'klein', params:{"168":{text:prompt},"158":{noise_seed:Math.floor(Math.random()*1000000)},"278":{image:names[0] || ""},"270":{image:names[1] || ""},"292":{image:names[2] || ""},"313":{value:Boolean(names[1])},"314":{value:Boolean(names[2])}}, client_id:smartClientId});
-    const out = data.outputs || data.images || [];
-    if(!out.length) throw new Error(tr('smart.errComfyNoImages'));
-    if(pendingNode){
-        finalizePendingNode(pendingNode, out, meta);
-    } else {
-        const created = createNode((node.x || 0) + nodeRect(node).width + 40, node.y || 0, out.map((url, i) => ({url, name:`edit-${i + 1}.png`})));
-        attachRunMeta(created, meta);
-        addConnection(node.id, created.id);
-    }
-    clearPromptInput({preserveDraft:true});
-    scheduleSave();
-}
-async function comfyNameForRef(ref){
-    const localRef = String(ref?.url || '').startsWith('/assets/');
-    if(ref.comfy_name && !localRef) return ref.comfy_name;
-    const response = await fetch(ref.url);
-    if(!response.ok) throw new Error(`无法读取参考素材「${ref.name || ref.url}」（HTTP ${response.status}）`);
-    const blob = await response.blob();
-    const form = new FormData();
-    form.append('files', blob, ref.name || 'smart-ref.png');
-    const data = await fetch('/api/upload', {method:'POST', body:form}).then(async r => {
-        if(!r.ok) throw new Error(await r.text());
-        return r.json();
-    });
-    const name = String(data.files?.[0]?.comfy_name || '').trim();
-    if(!name) throw new Error(`参考素材「${ref.name || ref.url}」上传到 ComfyUI 失败`);
-    const node = ref.nodeId ? nodes.find(n => n.id === ref.nodeId) : null;
-    const image = node?.images?.find(img => img.url === ref.url) || (nodes || []).flatMap(n => n.images || []).find(img => img?.url === ref.url);
-    if(image) image.comfy_name = name;
-    ref.comfy_name = name;
-    return name;
-}
-function smartMinimaxPrompt(node){
-    const seg = smartMinimaxSelectedSegment(node);
-    return String(seg?.prompt || '').trim() || String(node.promptDraftText || '').trim() || inputPromptTextFor(node) || 'Generate a cinematic video clip.';
-}
-async function smartMinimaxDynamicParams(node){
-    const seg = smartMinimaxSelectedSegment(node);
-    const duration = Math.max(0.5, Number(seg?.duration || node.duration || 8) || 8);
-    const params = {
-        "136":{},
-        "115":{aspect_ratio:seg?.aspectRatio || node.aspectRatio || '16:9 (Widescreen)', megapixels:Number(seg?.megapixels || node.megapixels || 0.4)},
-        "132":{value:duration},
-        "138":{value:smartMinimaxPrompt(node)},
-        "129":{noise_seed:Math.floor(Math.random() * 4294967295)}
-    };
-    for(let i = 0; i < SMART_MINIMAX_REF_IMAGE_MAX; i++) params["136"][`ref_images.ref_image_${i}`] = null;
-    for(let i = 0; i < SMART_MINIMAX_REF_VIDEO_MAX; i++) params["136"][`ref_videos.ref_video_${i}`] = null;
-    for(let i = 0; i < SMART_MINIMAX_REF_AUDIO_MAX; i++) params["136"][`ref_audios.ref_audio_${i}`] = null;
-    const images = smartMinimaxRefsForKind(node, 'image');
-    if(images.length > SMART_MINIMAX_REF_IMAGE_MAX) throw new Error(`MiniMax H3 最多支持 ${SMART_MINIMAX_REF_IMAGE_MAX} 张参考图`);
-    for(let i = 0; i < images.length; i++){
-        const name = await comfyNameForRef(images[i]);
-        params[String(9000 + i)] = {class_type:'LoadImage', inputs:{image:name}, _meta:{title:`MiniMax image ${i + 1}`}};
-        params["136"][`ref_images.ref_image_${i}`] = [String(9000 + i), 0];
-    }
-    const videos = smartMinimaxRefsForKind(node, 'video');
-    if(videos.length > SMART_MINIMAX_REF_VIDEO_MAX) throw new Error(`MiniMax H3 最多支持 ${SMART_MINIMAX_REF_VIDEO_MAX} 段参考视频`);
-    for(let i = 0; i < videos.length; i++){
-        const name = await comfyNameForRef(videos[i]);
-        const loadNodeId = String(9040 + i);
-        const componentsNodeId = String(9050 + i);
-        params[loadNodeId] = {class_type:'LoadVideo', inputs:{file:name}, _meta:{title:`MiniMax video ${i + 1}`}};
-        params[componentsNodeId] = {class_type:'GetVideoComponents', inputs:{video:[loadNodeId, 0]}, _meta:{title:`MiniMax video frames ${i + 1}`}};
-        params["136"][`ref_videos.ref_video_${i}`] = [componentsNodeId, 0];
-    }
-    const audios = smartMinimaxRefsForKind(node, 'audio');
-    if(audios.length > SMART_MINIMAX_REF_AUDIO_MAX) throw new Error(`MiniMax H3 最多支持 ${SMART_MINIMAX_REF_AUDIO_MAX} 段参考音频`);
-    for(let i = 0; i < audios.length; i++){
-        const name = await comfyNameForRef(audios[i]);
-        params[String(9060 + i)] = {class_type:'LoadAudio', inputs:{audio:name}, _meta:{title:`MiniMax audio ${i + 1}`}};
-        params["136"][`ref_audios.ref_audio_${i}`] = [String(9060 + i), 0];
-    }
-    return params;
-}
-function smartMinimaxReadableError(error, engine='comfyui'){
-    const text = String(error?.message || error || tr('smart.errRunFailed')).trim();
-    const jsonStart = text.indexOf('{');
-    if(jsonStart < 0) return text;
-    try {
-        const payload = JSON.parse(text.slice(jsonStart));
-        const parts = [];
-        const mainError = payload?.error;
-        if(mainError?.message) parts.push(String(mainError.message));
-        if(mainError?.details && !parts.includes(String(mainError.details))) parts.push(String(mainError.details));
-        Object.entries(payload?.node_errors || {}).slice(0, 3).forEach(([nodeId, nodeError]) => {
-            const details = (nodeError?.errors || []).slice(0, 2).map(item => item?.details || item?.message).filter(Boolean);
-            if(details.length) parts.push(`节点 ${nodeId}${nodeError?.class_type ? `（${nodeError.class_type}）` : ''}：${details.join('；')}`);
-        });
-        const prefix = engine === 'runninghub' ? 'RunningHub 工作流执行失败' : 'ComfyUI 拒绝了工作流';
-        return parts.length ? `${prefix}：${parts.join('；')}` : text;
-    } catch {
-        return text;
-    }
-}
-async function smartMinimaxRunningHubSettings(node){
-    const entry = smartMinimaxRunningHubEntry(node);
-    const workflowId = runningHubEntryId(entry, 'workflow');
-    if(!entry || !workflowId) throw new Error(`请先在 API 设置中添加「${SMART_MINIMAX_RUNNINGHUB_WORKFLOW_TITLE}」`);
-    const cached = await ensureRunningHubWorkflow(workflowId, {fetchRemote:true}).catch(() => null);
-    const fields = smartMinimaxRunningHubFieldsForConfig(
-        Array.isArray(cached?.fields) && cached.fields.length ? cached.fields : rhEntryFields(entry)
-    );
-    if(!fields.length) throw new Error(`请先在 API 设置中打开「${runningHubEntryLabel(entry, 'workflow')}」，拉取并保存工作流参数`);
-    const workflowJson = rhWorkflowJsonFromSources(cached?.workflowJson, entry?.workflowJson, entry?.raw?.workflowJson, entry?.raw?.prompt);
-    return {
-        engine:'runninghub',
-        rhConfigKey:runningHubEntryKey('workflow', workflowId),
-        rhPayment:'free',
-        rhInstanceType:'',
-        rhParams:{},
-        rhRandomActive:{},
-        rhFields:fields,
-        rhWorkflowJson:workflowJson,
-        rhOptionalImageMode:'prune-workflow'
-    };
-}
-function smartMinimaxAspectForRunningHub(value, field=null){
-    const text = String(value || '').trim();
-    const match = text.match(/\d+\s*:\s*\d+/);
-    const ratio = match ? match[0].replace(/\s+/g, '') : '16:9';
-    if(smartMinimaxRunningHubFullAspectField(field)) return smartMinimaxFullAspectLabel(ratio);
-    const defaultValue = rhDefaultValue(field);
-    if(defaultValue && new RegExp(`^${ratio.replace(':', '\\s*:\\s*')}(?:\\s|$)`).test(defaultValue.replace(/\s+/g, ' '))) return defaultValue;
-    const options = rhExtractFieldOptions(field) || [];
-    const option = options.find(item => String(item).replace(/\s+/g, '').startsWith(ratio));
-    return option || ratio;
-}
-function smartMinimaxRunRefs(node){
-    return smartMinimaxAllRefs(node).map(ref => ({...ref, kind:mediaKindForItem(ref)}));
-}
-function smartMinimaxRunSnapshot(node, extraSettings={}){
-    const seg = smartMinimaxSelectedSegment(node);
-    const refs = smartMinimaxRunRefs(node);
-    const engine = smartMinimaxEngine(node);
-    const duration = Math.max(0.5, Number(seg?.duration || node?.duration || 8) || 8);
-    const aspectRatio = seg?.aspectRatio || node?.aspectRatio || '16:9 (Widescreen)';
-    const megapixels = Number(seg?.megapixels || node?.megapixels || 0.4);
-    return {
-        nodeId:node?.id || '',
-        nodeType:'smart-minimax',
-        kind:'video',
-        prompt:smartMinimaxPrompt(node),
-        refs:refs.map(ref => ({url:ref.url || '', name:ref.name || 'media', kind:ref.kind || mediaKindForItem(ref)})).filter(ref => ref.url),
-        settings:{
-            engine:engine === 'runninghub' ? 'runninghub' : 'comfy',
-            comfyWorkflow:node?.workflow || 'MiniMax_H3.json',
-            comfyMode:'custom',
-            rhWorkflowId:node?.minimaxRunningHubWorkflowId || SMART_MINIMAX_RUNNINGHUB_WORKFLOW_ID,
-            rhWorkflowTitle:SMART_MINIMAX_RUNNINGHUB_WORKFLOW_TITLE,
-            rhTaskLabel:SMART_MINIMAX_RUNNINGHUB_WORKFLOW_TITLE,
-            rhMode:'workflow',
-            duration,
-            aspectRatio,
-            megapixels:Number.isFinite(megapixels) ? megapixels : 0.4,
-            refCount:refs.length,
-            ...extraSettings
-        }
-    };
-}
-function smartMinimaxLogError(error, engine='comfyui'){
-    const base = smartMinimaxReadableError(error, engine);
-    const details = error?.smartDetails || {};
-    const lines = [base];
-    if(details.taskId && !base.includes(details.taskId)) lines.push(`taskId: ${details.taskId}`);
-    if(details.code !== undefined && details.code !== null && details.code !== '') lines.push(`code: ${details.code}`);
-    if(details.stage) lines.push(`stage: ${details.stage}`);
-    if(details.workflowId) lines.push(`workflowId: ${details.workflowId}`);
-    if(details.webappId) lines.push(`webappId: ${details.webappId}`);
-    if(details.nodeInfoList) lines.push(`nodeInfoList: ${smartCompactJson(details.nodeInfoList, 1800)}`);
-    if(details.raw) lines.push(`raw: ${smartCompactJson(details.raw, 4200)}`);
-    return lines.filter(Boolean).join('\n');
-}
-async function runMinimaxRunningHub(node){
-    const seg = smartMinimaxSelectedSegment(node);
-    const runSettings = await smartMinimaxRunningHubSettings(node);
-    const fields = runSettings.rhFields || [];
-    const duration = Math.max(0.5, Number(seg?.duration || node.duration || 8) || 8);
-    const aspectField = fields.find(item => smartMinimaxRunningHubFieldMatches(item, [/aspect[_\s-]?ratio|\bratio\b|画面比例|比例/], ['115::aspect_ratio']));
-    const aspect = smartMinimaxAspectForRunningHub(seg?.aspectRatio || node.aspectRatio || '16:9', aspectField);
-    const prompt = smartMinimaxPrompt(node);
-    smartMinimaxSetRunningHubParam(runSettings, fields, [/prompt|positive|text|caption|description|关键词|提示词|正向/], ['138::value'], prompt);
-    smartMinimaxSetRunningHubParam(runSettings, fields, [/duration|seconds|时长|秒/], ['132::value'], duration);
-    smartMinimaxSetRunningHubParam(runSettings, fields, [/aspect[_\s-]?ratio|\bratio\b|画面比例|比例/], ['115::aspect_ratio'], aspect);
-    smartMinimaxSetRunningHubParam(runSettings, fields, [/megapixels?|百万像素/], ['115::megapixels'], Number(seg?.megapixels || node.megapixels || 0.4));
-    const refs = smartMinimaxRunRefs(node);
-    const urls = await runRunningHubGeneration(prompt, refs, runSettings);
-    if(!urls.length) throw new Error(tr('smart.errNoOutVideos'));
-    return {urls, kind:mediaKindForUrls(urls, 'video'), runSettings};
-}
-async function runMinimaxNode(nodeId){
-    const node = nodes.find(n => n.id === nodeId && n.type === 'smart-minimax');
-    if(!node || node.running) return;
-    savePromptDraftForCurrent();
-    node.runStartedAt = nowMs();
-    delete node.runFinishedAt;
-    delete node.runElapsedMs;
-    node.runTimerHidden = false;
-    node.running = true;
-    const startedAt = node.runStartedAt;
-    let runLog = smartMinimaxRunSnapshot(node);
-    render();
-    try {
-        let urls = [];
-        let resultKind = 'video';
-        if(smartMinimaxEngine(node) === 'runninghub'){
-            const rhResult = await runMinimaxRunningHub(node);
-            urls = rhResult.urls || [];
-            resultKind = rhResult.kind || 'video';
-            if(rhResult.runSettings) runLog = smartMinimaxRunSnapshot(node, {
-                rhWorkflowId:rhResult.runSettings.rhWorkflowId || runLog.settings.rhWorkflowId,
-                rhAppId:rhResult.runSettings.rhAppId || '',
-                rhTaskId:rhResult.runSettings.rhTaskId || '',
-                rhMode:rhResult.runSettings.rhMode || 'workflow'
-            });
-        } else {
-            const params = await smartMinimaxDynamicParams(node);
-            const result = await runQueuedSmartComfyGenerate({
-                prompt:smartMinimaxPrompt(node),
-                workflow_json:node.workflow || 'MiniMax_H3.json',
-                params,
-                type:'minimax-h3',
-                client_id:smartClientId
-            });
-            urls = resultMediaUrls(result);
-            resultKind = mediaKindForUrls(urls, result.videos?.length ? 'video' : 'video');
-        }
-        if(!urls.length) throw new Error(tr('smart.errComfyNoImages'));
-        const kind = resultKind;
-        const out = urls.map((item, i) => {
-            const url = typeof item === 'string' ? item : item?.url || '';
-            const itemKind = typeof item === 'object' && item.kind ? item.kind : kind;
-            const ext = itemKind === 'audio' ? 'mp3' : itemKind === 'image' ? 'png' : 'mp4';
-            return { ...(typeof item === 'object' ? item : {}), url, name:(typeof item === 'object' && item.name) || `minimax-${i + 1}.${ext}`, kind:itemKind };
-        }).filter(item => item.url);
-        const seg = smartMinimaxSelectedSegment(node);
-        out.forEach(item => smartMinimaxSetSegmentResult(node, seg, item));
-        addSmartGenerationLog({run:runLog, outputs:out, runMs:Math.max(0, nowMs() - Number(startedAt || nowMs()))});
-        selectedId = node.id;
-        selectedIds = [];
-        selectedImage = {nodeId:'', index:-1};
-        toast(`MiniMax segment ${Math.max(1, node.segments.findIndex(item => item.id === seg?.id) + 1)} done`);
-        scheduleSave();
-    } catch(e) {
-        const readable = smartMinimaxReadableError(e, smartMinimaxEngine(node));
-        const details = e?.smartDetails || {};
-        runLog = smartMinimaxRunSnapshot(node, {
-            rhTaskId:details.taskId || runLog.settings.rhTaskId || '',
-            rhWorkflowId:details.workflowId || runLog.settings.rhWorkflowId || '',
-            rhAppId:details.webappId || runLog.settings.rhAppId || '',
-            rhMode:details.webappId ? 'app' : (runLog.settings.rhMode || 'workflow')
-        });
-        addSmartGenerationLog({run:runLog, outputs:[], runMs:Math.max(0, nowMs() - Number(startedAt || nowMs())), error:smartMinimaxLogError(e, smartMinimaxEngine(node))});
-        toast(readable.slice(0, 320));
-    } finally {
-        node.runFinishedAt = nowMs();
-        node.runElapsedMs = Math.max(0, node.runFinishedAt - Number(node.runStartedAt || startedAt));
-        node.runTimerHidden = false;
-        node.running = false;
-        scheduleSave();
-        render();
-    }
-}
-async function exportMinimaxTimeline(node, options={}){
-    smartMinimaxEnsureSegment(node);
-    const sourceSegments = options.selectedOnly ? [smartMinimaxSelectedSegment(node)].filter(Boolean) : (node.segments || []);
-    const clips = sourceSegments.filter(seg => seg?.result?.url).map((seg, index) => ({
-        url:seg.result.url,
-        name:seg.result.name || `minimax-${index + 1}.mp4`,
-        start:Number(seg.trimIn || 0) || 0,
-        end:Number(seg.trimOut || seg.duration || 0) || Number(seg.duration || 0),
-        duration:Number(seg.duration || 0) || 0
-    })).filter(item => item.url);
-    if(!clips.length){
-        toast('No generated clips to export.');
-        return;
-    }
-    if(clips.length === 1 && clips[0].start <= 0 && (!clips[0].end || clips[0].end >= clips[0].duration)){
-        const only = (node.segments || []).find(seg => seg?.result?.url)?.result;
-        if(only?.url) downloadPreviewFile(only);
-        return;
-    }
-    try {
-        toast('Exporting timeline...');
-        const result = await fetch('/api/smart-canvas/minimax-export', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({clips, filename:`minimax-timeline-${Date.now()}.mp4`})
-        }).then(async r => { if(!r.ok) throw new Error(await smartResponseErrorMessage(r, 'Export failed')); return r.json(); });
-        if(result?.url) downloadPreviewFile({url:result.url, name:result.name || 'minimax-timeline.mp4', kind:'video'});
-    } catch(e) {
-        toast((e.message || 'Export failed').slice(0, 180));
-    }
-}
 
 function smartPendingTasks(node){
     if(!node || !Array.isArray(node.pendingTasks)) return [];
@@ -17445,7 +14177,6 @@ function createNodeFromMenu(type){
     let created = null;
     if(type === 'prompt') created = createPromptNode(p.x - 158, p.y - 97);
     else if(type === 'loop') created = createLoopNode(p.x - 135, p.y - 95);
-    else if(type === 'minimax') created = createMinimaxNode(p.x - 520, p.y - 320);
     else created = createImageNodeAt(p);
     createMenuGroupId = groupId;
     addCreatedNodeToMenuGroup(created);
@@ -18011,7 +14742,7 @@ window.onmouseup = e => {
     }
 };
 shell.addEventListener('wheel', e => {
-    if(e.target.closest('.composer,.smart-back,.image-edit-modal,.asset-panel,.asset-toggle,.smart-log-toggle,.smart-shortcut-toggle,.smart-workflow-toggle,.workflow-transfer-panel,.log-modal,.shortcut-modal,.prompt-node-segments,.prompt-node-text,.prompt-node-llm,.smart-group-list,.minimax-library-list,.minimax-ref-track,[data-thumb-scroll]')) return;
+    if(e.target.closest('.composer,.smart-back,.image-edit-modal,.asset-panel,.asset-toggle,.smart-log-toggle,.smart-shortcut-toggle,.smart-workflow-toggle,.workflow-transfer-panel,.log-modal,.shortcut-modal,.prompt-node-segments,.prompt-node-text,.prompt-node-llm,.smart-group-list,[data-thumb-scroll]')) return;
     e.preventDefault();
     const rect = shell.getBoundingClientRect();
     const sx = e.clientX - rect.left;
@@ -18025,22 +14756,6 @@ shell.addEventListener('wheel', e => {
     scheduleSave();
 }, {passive:false});
 shell.ondragover = e => setSmartDropCopyEffect(e, true);
-document.addEventListener('dragover', e => {
-    const ctx = globalMinimaxDropContext(e);
-    if(!ctx || !smartMinimaxDropAccepted(e.dataTransfer)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation?.();
-    e.dataTransfer.dropEffect = smartDropDataTypes(e.dataTransfer).includes('application/x-minimax-ref') && !e.altKey ? 'move' : 'copy';
-}, true);
-document.addEventListener('drop', e => {
-    const ctx = globalMinimaxDropContext(e);
-    if(!ctx || !smartMinimaxDropAccepted(e.dataTransfer)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation?.();
-    handleMinimaxTimelineDrop(ctx.el, ctx.node, e, ctx.zone);
-}, true);
 shell.ondrop = async e => {
     e.preventDefault();
     if(e.target.closest('.image-node')) return;
@@ -18080,16 +14795,6 @@ window.addEventListener('paste', e => {
 window.addEventListener('keydown', e => {
     const key = String(e.key || '').toLowerCase();
     if((e.code === 'Space' || e.key === ' ') && !e.ctrlKey && !e.metaKey && !e.altKey && !isEditableTarget(e.target)){
-        const active = selectedNode();
-        if(active?.type === 'smart-minimax'){
-            const nodeEl = [...(world?.querySelectorAll?.('.image-node') || [])].find(item => item.dataset.id === active.id);
-            const playBtn = nodeEl?.querySelector?.('[data-minimax-play-timeline]');
-            if(playBtn){
-                e.preventDefault();
-                playBtn.click();
-                return;
-            }
-        }
     }
     if(key === 'r' && !isEditableTarget(e.target)) isRKeyDown = true;
     if(imageEditModal.classList.contains('open') && imageEditMode === 'preview' && !isEditableTarget(e.target)){
@@ -18174,24 +14879,7 @@ engineSelect.onchange = () => {
 };
 function syncApiKindToggleVisibility(){
     if(!apiKindToggle) return;
-    apiKindToggle.style.display = isApiLikeEngine(settings.engine) ? 'inline-flex' : 'none';
-    apiKindToggle.querySelectorAll('[data-kind]').forEach(btn => btn.classList.toggle('active', btn.dataset.kind === (settings.apiKind || 'image')));
-}
-if(apiKindToggle){
-    apiKindToggle.querySelectorAll('[data-kind]').forEach(btn => {
-        btn.onclick = e => {
-            e.preventDefault();
-            e.stopPropagation();
-            const kind = btn.dataset.kind;
-            if(kind === settings.apiKind) return;
-            settings.apiKind = kind;
-            applyRecentSmartSettingsForCurrentMode();
-            syncApiKindToggleVisibility();
-            renderDynamicParams();
-            persistActiveSmartSettings();
-            scheduleSave();
-        };
-    });
+    apiKindToggle.style.display = 'none';
 }
 let promptResizeState = null;
 const promptResize = document.getElementById('promptResize');
@@ -18917,7 +15605,7 @@ window.addEventListener('studio-theme-change', event => applyTheme(event.detail?
 try {
     const apiChannel = new BroadcastChannel('studio-api');
     apiChannel.onmessage = async event => {
-        if(event.data?.type === 'providers-changed' || event.data?.type === 'workflows-changed' || event.data?.type === 'comfy-instances-changed'){
+        if(event.data?.type === 'providers-changed' || event.data?.type === 'workflows-changed'){
             await refreshSmartConfigFromSettings();
         }
         if(event.data?.type === 'asset_library_updated') handleAssetLibraryUpdatedMessage(event.data);
@@ -18930,7 +15618,7 @@ window.addEventListener('focus', () => {
 window.addEventListener('message', event => {
     if(event.origin && event.origin !== location.origin) return;
     if(event.data?.type === 'studio-theme') applyTheme(event.data.theme || 'light');
-    if(event.data?.type === 'providers-changed' || event.data?.type === 'workflows-changed' || event.data?.type === 'comfy-instances-changed') refreshSmartConfigFromSettings();
+    if(event.data?.type === 'providers-changed' || event.data?.type === 'workflows-changed') refreshSmartConfigFromSettings();
     if(event.data?.type === 'asset_library_updated') handleAssetLibraryUpdatedMessage(event.data);
     if(event.data?.type === 'canvas_updated') handleCanvasUpdatedMessage(event.data);
     if(event.data?.type === 'studio-lang' && window.StudioI18n) {

@@ -2,7 +2,6 @@
     if(!window.StudioI18n) return;
     window.StudioI18n.register({
         "common.apiSettings": { zh: "API 设置", en: "API Settings" },
-        "common.comfyuiSettings": { zh: "工作流设置", en: "Workflow Settings" },
         "common.darkMode": { zh: "黑夜模式", en: "Dark Mode" },
         "common.lightMode": { zh: "白天模式", en: "Light Mode" },
         "common.language": { zh: "中文", en: "English" },
@@ -22,13 +21,7 @@
         "update.openProject": { zh: "打开项目", en: "Open Project" },
         "update.oneClick": { zh: "一键更新", en: "Update" },
         "update.versionLine": { zh: "本地 {local} · 最新 {remote}", en: "Local {local} · Latest {remote}" },
-        "nav.textToImage": { zh: "文生图", en: "Text to Image" },
-        "nav.localTools": { zh: "本地功能", en: "Local Tools" },
-        "nav.enhance": { zh: "细节增强", en: "Enhance" },
-        "nav.imageEdit": { zh: "图片编辑", en: "Image Edit" },
-        "nav.angle": { zh: "角度控制", en: "Angle Control" },
         "nav.online": { zh: "在线生图", en: "Online Image" },
-        "nav.gpt": { zh: "GPT 对话", en: "GPT Chat" },
         "nav.canvas": { zh: "无限画布", en: "Infinite Canvas" },
         "nav.assetManager": { zh: "素材库", en: "Assets" },
         "bulk.manage": { zh: "管理", en: "Manage" },

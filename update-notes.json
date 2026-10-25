@@ -1,0 +1,32 @@
+{
+  "version": "2026.10.25.5",
+  "date": "2026-10-25",
+  "title": "移除 MiniMax / RunningHub / ComfyUI / LTX Director / 视频生成节点",
+  "changes": [
+    {
+      "type": "remove",
+      "scope": "无限画布 / 智能画布 / 在线生图 / API 设置",
+      "detail": "彻底移除 MiniMax、RunningHub、ComfyUI、LTX Director 四类节点与视频生成节点，包括其创建入口、工具栏、渲染函数、运行函数及全部辅助函数、CSS 死规则、i18n 死键、工作流目录与 ltx-director-timeline.js。"
+    },
+    {
+      "type": "rename",
+      "scope": "WEBUI 标题",
+      "detail": "主界面与画布页标题统一改为「无限画布-联创四院」。"
+    },
+    {
+      "type": "ui",
+      "scope": "左下角",
+      "detail": "UDG 字样下方新增联创红色 LOGO（内联 SVG，#C8102E 红底白字，离线可用）。"
+    },
+    {
+      "type": "keep",
+      "scope": "RunningHub 后端",
+      "detail": "保留 /api/runninghub/* 后端接口与 data/api_providers.json 中的 runninghub 平台条目，供 Photoshop 素材插件继续调用；设置页与在线生图页的 RunningHub UI 已隐藏。"
+    },
+    {
+      "type": "remove",
+      "scope": "API 设置-视频模型",
+      "detail": "移除「视频模型」配置区块及对应渲染逻辑（视频生成节点已无，配置无意义）。"
+    }
+  ]
+}

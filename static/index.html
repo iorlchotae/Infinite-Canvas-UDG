@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="/static/images/logo.png" type="image/png">
-    <title>AI Studio</title>
+    <title>无限画布-联创四院</title>
     <style>
         html.studio-route-booting body {
             visibility: hidden !important;
@@ -23,11 +23,11 @@
             } catch(e) {}
         })();
     </script>
-    <script src="/static/vendor/js/tailwindcss-cdn.js?v=2026.08.04.1785292594"></script>
-    <script src="/static/js/theme.js?v=2026.08.04.1785292593"></script>
-    <script src="/static/js/i18n.js?v=2026.08.04.1785292592"></script>
+    <script src="/static/vendor/js/tailwindcss-cdn.js?v=2026.10.25.5.1792888835"></script>
+    <script src="/static/js/theme.js?v=2026.10.25.5.1792888835"></script>
+    <script src="/static/js/i18n.js?v=2026.10.25.5.1792903183"></script>
     <style>
-        @import url('/static/vendor/css/fonts.css?v=2026.08.04.1785292593');
+        @import url('/static/vendor/css/fonts.css?v=2026.10.25.5.1792888835');
 
         /* 本地 Tailwind 工具类兜底：CDN 慢/未就绪时也能立刻给图标尺寸，避免首屏左侧栏空白 */
         .w-1\.5 { width: 0.375rem; }
@@ -61,7 +61,6 @@
             --scrollbar: #d8d8d8;
             --scrollbar-hover: #c0c0c0;
             --author-name: #000;
-            --social-icon: #ccc;
         }
 
         html.theme-dark,
@@ -81,7 +80,6 @@
             --scrollbar: #334155;
             --scrollbar-hover: #475569;
             --author-name: #e5e9f0;
-            --social-icon: #64748b;
         }
 
         /* 极简滚动条 */
@@ -283,65 +281,6 @@
             transition-delay: 0.1s;
         }
 
-        .nav-fold-toggle {
-            position: relative;
-            width: 48px;
-            height: 36px;
-            flex: 0 0 36px;
-            margin: 0 0 6px;
-            padding-left: 14px;
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            background: transparent;
-            color: var(--muted);
-            display: flex;
-            align-items: center;
-            justify-content: flex-start;
-            cursor: pointer;
-            overflow: hidden;
-            transition: width 0.3s var(--fluid-ease) 0.5s, background-color 0.2s, color 0.2s, border-color 0.2s;
-        }
-
-        .sidebar:hover .nav-fold-toggle {
-            width: 190px;
-            transition-delay: 0s;
-        }
-
-        .nav-fold-toggle:hover {
-            background: var(--nav-hover-bg);
-            color: var(--text);
-            border-color: var(--stage-border);
-        }
-
-        .nav-fold-icon {
-            width: 18px;
-            height: 18px;
-            flex: 0 0 auto;
-            transition: transform 0.25s var(--fluid-ease);
-        }
-
-        .nav-fold-toggle[aria-expanded="false"] .nav-fold-icon {
-            transform: rotate(-90deg);
-        }
-
-        .nav-fold-group {
-            width: 100%;
-            flex: 0 0 auto;
-            max-height: 720px;
-            opacity: 1;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            transition: max-height 0.3s var(--fluid-ease), opacity 0.2s ease;
-        }
-
-        .nav-fold-group.is-collapsed {
-            max-height: 0;
-            opacity: 0;
-            pointer-events: none;
-        }
-
         .sidebar nav {
             width: 100%;
             min-height: 0;
@@ -524,22 +463,30 @@
             z-index: 10;
         }
 
-        .letter-d { transform: translateX(-8px); }
-        .letter-x { transform: translateX(8px); }
+        .letter-u { transform: translateX(-16px); }
+        .letter-d { transform: translateX(0px); }
+        .letter-g { transform: translateX(16px); }
 
-        .sidebar:hover .letter-d {
-            transform: translateX(-120px);
+        .sidebar:hover .letter-u {
+            transform: translateX(-140px);
             opacity: 0;
             transition-delay: 0s;
         }
 
-        .sidebar:hover .letter-x {
-            transform: translateX(120px);
+        .sidebar:hover .letter-d {
+            transform: translateY(-24px);
+            opacity: 0;
+            transition-delay: 0s;
+        }
+
+        .sidebar:hover .letter-g {
+            transform: translateX(140px);
             opacity: 0;
             transition-delay: 0s;
         }
 
         .author-content-wrap {
+            position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -547,6 +494,7 @@
             transform: scale(0.9);
             transition: all 0.4s var(--fluid-ease) 0s;
             pointer-events: none;
+            margin-bottom: 16px;
         }
 
         .sidebar:hover .author-content-wrap {
@@ -559,20 +507,21 @@
         .author-name-lite {
             font-size: 12px;
             font-weight: 700;
-            margin-bottom: 8px;
             color: var(--author-name);
         }
 
-        .social-row-lite { display: flex; gap: 12px; }
-
-        .social-icon-lite {
-            color: var(--social-icon);
-            transition: color 0.2s, transform 0.2s;
-        }
-
-        .social-icon-lite:hover {
-            color: var(--text);
-            transform: translateY(-1px);
+        /* 联创红色 LOGO（UDG 徽标），常驻于左下角 UDG 字母下方 */
+        .udg-red-logo {
+            position: absolute;
+            bottom: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+            height: 13px;
+            width: auto;
+            z-index: 5;
+            opacity: 0.95;
+            filter: drop-shadow(0 1px 2px rgba(200, 16, 46, 0.35));
+            transition: opacity 0.3s var(--fluid-ease);
         }
 
         .side-actions {
@@ -823,13 +772,6 @@
                 margin: 5px 0;
                 border-radius: 15px;
             }
-            .nav-fold-toggle {
-                height: 32px;
-                flex-basis: 32px;
-                margin-bottom: 4px;
-                border-radius: 14px;
-            }
-            .nav-fold-group { max-height: 720px; }
             .side-actions {
                 margin-top:auto;
                 margin-bottom:6px;
@@ -857,6 +799,10 @@
             .dx-letter {
                 font-size:12px;
             }
+            .udg-red-logo {
+                height:10px;
+                bottom:2px;
+            }
         }
 
         @media (max-height: 660px) {
@@ -880,8 +826,6 @@
                 margin:3px 0;
                 border-radius:14px;
             }
-            .nav-fold-toggle { height:30px; flex-basis:30px; }
-            .nav-fold-group { max-height: 720px; }
             .side-actions {
                 margin-top:auto;
                 margin-bottom:4px;
@@ -906,6 +850,7 @@
             .dx-letter {
                 font-size:11px;
             }
+            .udg-red-logo { display:none; }
             .side-pill svg { width:15px; height:15px; }
             .project-version-badge { width:38px; min-height:16px; font-size:8px; }
             .update-now-btn.show { width:46px; min-height:22px; font-size:8px; }
@@ -1353,8 +1298,7 @@
         .sidebar.is-pinned .logo-ring:focus-visible {
             box-shadow: 0 0 0 5px rgba(148, 163, 184, .14);
         }
-        .sidebar.is-pinned .nav-item,
-        .sidebar.is-pinned .nav-fold-toggle {
+        .sidebar.is-pinned .nav-item {
             width: 190px;
             transition-delay: 0s;
         }
@@ -1362,13 +1306,18 @@
             opacity: 1;
             transition-delay: 0.1s;
         }
-        .sidebar.is-pinned .letter-d {
-            transform: translateX(-120px);
+        .sidebar.is-pinned .letter-u {
+            transform: translateX(-140px);
             opacity: 0;
             transition-delay: 0s;
         }
-        .sidebar.is-pinned .letter-x {
-            transform: translateX(120px);
+        .sidebar.is-pinned .letter-d {
+            transform: translateY(-24px);
+            opacity: 0;
+            transition-delay: 0s;
+        }
+        .sidebar.is-pinned .letter-g {
+            transform: translateX(140px);
             opacity: 0;
             transition-delay: 0s;
         }
@@ -1418,19 +1367,22 @@
             border-radius: 12px;
             background: transparent;
         }
-        .sidebar.is-collapsing:hover .nav-item,
-        .sidebar.is-collapsing:hover .nav-fold-toggle {
+        .sidebar.is-collapsing:hover .nav-item {
             width: 48px;
         }
         .sidebar.is-collapsing:hover .nav-text {
             opacity: 0;
         }
-        .sidebar.is-collapsing:hover .letter-d {
-            transform: translateX(-8px);
+        .sidebar.is-collapsing:hover .letter-u {
+            transform: translateX(-16px);
             opacity: 1;
         }
-        .sidebar.is-collapsing:hover .letter-x {
-            transform: translateX(8px);
+        .sidebar.is-collapsing:hover .letter-d {
+            transform: translateX(0px);
+            opacity: 1;
+        }
+        .sidebar.is-collapsing:hover .letter-g {
+            transform: translateX(16px);
             opacity: 1;
         }
         .sidebar.is-collapsing:hover .author-content-wrap {
@@ -1479,57 +1431,12 @@
             </button>
 
             <nav>
-                <button class="nav-fold-toggle" id="local-nav-toggle" type="button" onclick="toggleLocalNav()" aria-expanded="true" title="折叠本地功能">
-                    <svg class="nav-fold-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                    <span class="nav-text" data-i18n="nav.localTools">本地功能</span>
-                </button>
-
-                <div class="nav-fold-group" id="local-nav-group">
-                    <div class="nav-item active" onclick="switchUI(this, 'zimage')">
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.587-1.587a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
-                        </svg>
-                        <span class="nav-text" data-i18n="nav.textToImage">文生图</span>
-                    </div>
-                    <div class="nav-item" onclick="switchUI(this, 'enhance')">
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path d="M13 10V3L4 14h7v7l9-11h-7z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
-                        </svg>
-                        <span class="nav-text" data-i18n="nav.enhance">细节增强</span>
-                    </div>
-                    <div class="nav-item" onclick="switchUI(this, 'klein')">
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
-                        </svg>
-                        <span class="nav-text" data-i18n="nav.imageEdit">图片编辑</span>
-                    </div>
-                    <div class="nav-item" onclick="switchUI(this, 'angle')">
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                        </svg>
-                        <span class="nav-text" data-i18n="nav.angle">角度控制</span>
-                    </div>
-                </div>
-
-                <!-- 分隔线 -->
-                <div style="width:32px;height:1px;background:var(--border);margin:8px auto;transition:background 0.3s;"></div>
-
                 <div class="nav-item" onclick="switchUI(this, 'online')">
                     <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z"></path>
                         <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
                     </svg>
                     <span class="nav-text" data-i18n="nav.online">在线生图</span>
-                </div>
-                <div class="nav-item" onclick="switchUI(this, 'gpt-chat')">
-                    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                    </svg>
-                    <span class="nav-text" data-i18n="nav.gpt">GPT 对话</span>
                 </div>
                 <div class="nav-item" onclick="switchUI(this, 'canvas')">
                     <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1596,17 +1503,6 @@
                         </svg>
                         <span class="side-pill-text" data-i18n="common.language">中文</span>
                     </button>
-                    <button class="side-pill" onclick="switchUI(this, 'comfyui-settings')" type="button" title="工作流设置">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="3" y="3" width="7" height="7" rx="1"></rect>
-                            <rect x="14" y="3" width="7" height="7" rx="1"></rect>
-                            <rect x="3" y="14" width="7" height="7" rx="1"></rect>
-                            <path d="M14 14h7v7h-7z"></path>
-                            <line x1="10" y1="6.5" x2="14" y2="6.5"></line>
-                            <line x1="6.5" y1="10" x2="6.5" y2="14"></line>
-                        </svg>
-                        <span class="side-pill-text" data-i18n="common.comfyuiSettings">工作流设置</span>
-                    </button>
                 </div>
                 <button id="github-entry-btn" class="side-pill" onclick="openProjectPage()" type="button" title="GitHub">
                     <svg fill="currentColor" stroke="none" viewBox="0 0 24 24" aria-hidden="true">
@@ -1625,33 +1521,16 @@
             </div>
 
             <div class="author-box">
+                <span class="dx-letter letter-u">U</span>
                 <span class="dx-letter letter-d">D</span>
-                <span class="dx-letter letter-x">X</span>
+                <span class="dx-letter letter-g">G</span>
+                <svg class="udg-red-logo" viewBox="0 0 56 20" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="联创四院 UDG">
+                    <rect x="0" y="0.5" width="56" height="19" rx="4" fill="#C8102E"></rect>
+                    <text x="28" y="14.6" text-anchor="middle" fill="#FFFFFF" font-size="11.5" font-weight="800" letter-spacing="1.5" font-family="Arial, Helvetica, sans-serif">UDG</text>
+                </svg>
 
                 <div class="author-content-wrap">
-                    <div class="author-name-lite">wuli大雄</div>
-                    <div class="social-row-lite">
-                        <a href="https://space.bilibili.com/78652351" target="_blank" class="social-icon-lite">
-                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M17.813 4.653h-.854L15.66 3.053a1.147 1.147 0 00-1.63 0l-1.3 1.6h-1.46L9.97 3.053a1.147 1.147 0 00-1.63 0L7.043 4.653h-.854a3.946 3.946 0 00-3.93 3.934v8.117a3.946 3.946 0 003.93 3.934h11.624a3.946 3.946 0 003.93-3.934V8.587a3.946 3.946 0 00-3.93-3.934zM7.152 13.9a1.465 1.465 0 111.47-1.462 1.465 1.465 0 01-1.47 1.462zm7.696 0a1.465 1.465 0 111.47-1.462 1.465 1.465 0 01-1.47 1.462z" />
-                            </svg>
-                        </a>
-                        <a href="https://www.xiaohongshu.com/user/profile/6433c34c000000001a023538" target="_blank" class="social-icon-lite">
-                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z" />
-                            </svg>
-                        </a>
-                        <a href="https://www.youtube.com/@%E5%A4%A7%E9%9B%84dx" target="_blank" class="social-icon-lite">
-                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
-                            </svg>
-                        </a>
-                        <a href="https://x.com/dx8152?s=21" target="_blank" class="social-icon-lite">
-                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                            </svg>
-                        </a>
-                    </div>
+                    <div class="author-name-lite">联创四院</div>
                 </div>
             </div>
         </aside>
@@ -1672,16 +1551,10 @@
         </script>
 
         <main class="stage">
-            <iframe id="frame-zimage" data-src="/static/zimage.html?v=2026.08.04.1785891163" class="active" scrolling="yes"></iframe>
-            <iframe id="frame-enhance" data-src="/static/enhance.html?v=2026.08.04.1785891163" scrolling="yes"></iframe>
-            <iframe id="frame-klein" data-src="/static/klein.html?v=2026.08.04.1785891163" scrolling="yes"></iframe>
-            <iframe id="frame-angle" data-src="/static/angle.html?v=2026.08.04.1785891163" scrolling="yes"></iframe>
-            <iframe id="frame-online" data-src="/static/online.html?v=2026.08.04.1785891163" scrolling="yes"></iframe>
-            <iframe id="frame-gpt-chat" data-src="/static/gpt-chat.html?v=2026.08.04.1785891163" scrolling="yes"></iframe>
-            <iframe id="frame-asset-manager" data-src="/static/asset-manager.html?v=2026.08.04.1785891163" scrolling="yes"></iframe>
-            <iframe id="frame-api-settings" data-src="/static/api-settings.html?v=2026.08.04.1787619792" scrolling="yes"></iframe>
-            <iframe id="frame-comfyui-settings" data-src="/static/comfyui-settings.html?v=2026.08.04.1785891163" scrolling="yes"></iframe>
-            <iframe id="frame-canvas" data-src="/static/canvas-list.html?v=2026.08.04.1785891163" scrolling="yes"></iframe>
+            <iframe id="frame-online" data-src="/static/online.html?v=2026.10.25.5.1792903644" scrolling="yes"></iframe>
+            <iframe id="frame-asset-manager" data-src="/static/asset-manager.html?v=2026.10.25.5.1792903644" scrolling="yes"></iframe>
+            <iframe id="frame-api-settings" data-src="/static/api-settings.html?v=2026.10.25.5.1792906499" scrolling="yes"></iframe>
+            <iframe id="frame-canvas" data-src="/static/canvas-list.html?v=2026.10.25.5.1792903644" scrolling="yes"></iframe>
 
         </main>
     </div>
@@ -1725,21 +1598,6 @@
                             </div>
                         </div>
                         <div class="connectivity-list" data-connectivity-source="github"></div>
-                    </button>
-                    <button id="update-source-modelscope" class="update-source-card" type="button" data-update-source="modelscope" onclick="setUpdateSource('modelscope')">
-                        <div class="update-source-head">
-                            <div class="update-source-title">
-                                <strong>ModelScope 下载源</strong>
-                                <span>ModelScope 空间与版本文件，适合国内网络。</span>
-                            </div>
-                            <div class="update-source-head-right">
-                                <span class="update-source-check" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                </span>
-                                <span class="update-source-badge">待测试</span>
-                            </div>
-                        </div>
-                        <div class="connectivity-list" data-connectivity-source="modelscope"></div>
                     </button>
                 </div>
                 <div id="project-update-summary" class="update-modal-summary warn">
@@ -1788,14 +1646,12 @@
         const CID = localStorage.getItem("client_id") || generateUUID();
         localStorage.setItem("client_id", CID);
         const ACTIVE_PAGE_KEY = 'studio_active_page';
-        const LOCAL_NAV_COLLAPSED_KEY = 'studio_local_nav_collapsed';
         const SIDEBAR_SETTINGS_COLLAPSED_KEY = 'studio_sidebar_settings_collapsed';
         const SIDEBAR_PINNED_KEY = 'studio_sidebar_pinned';
-        const DEFAULT_PAGE_ID = 'zimage';
-        const PAGE_IDS = ['zimage','enhance','klein','angle','online','gpt-chat','canvas','asset-manager','api-settings','comfyui-settings'];
-        const LOCAL_PAGE_IDS = ['zimage','enhance','klein','angle'];
-        const PROJECT_URL = 'https://github.com/hero8152/Infinite-Canvas';
-        let appInfo = { version:'', repo_url:PROJECT_URL, version_url:'https://raw.githubusercontent.com/hero8152/Infinite-Canvas/main/VERSION' };
+        const DEFAULT_PAGE_ID = 'canvas';
+        const PAGE_IDS = ['online','canvas','asset-manager','api-settings'];
+        const PROJECT_URL = 'https://github.com/iorlchotae/Infinite-Canvas-UDG';
+        let appInfo = { version:'', repo_url:PROJECT_URL, version_url:'https://raw.githubusercontent.com/iorlchotae/Infinite-Canvas-UDG/main/VERSION' };
         let updateConnectivityResult = null;
         let projectUpdateRunning = false;
         let projectUpdateAbort = null;  // 当前更新请求的 AbortController，便于用户中途取消
@@ -1832,27 +1688,6 @@
             setSidebarPinned(localStorage.getItem(SIDEBAR_PINNED_KEY) === '1', { skipRemember:true });
         }
 
-        function setLocalNavCollapsed(collapsed, options = {}) {
-            const group = document.getElementById('local-nav-group');
-            const toggle = document.getElementById('local-nav-toggle');
-            if(group) group.classList.toggle('is-collapsed', collapsed);
-            if(toggle) {
-                toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-                toggle.title = collapsed ? '展开本地功能' : '折叠本地功能';
-            }
-            if(!options.skipRemember) localStorage.setItem(LOCAL_NAV_COLLAPSED_KEY, collapsed ? '1' : '0');
-        }
-
-        function toggleLocalNav() {
-            const group = document.getElementById('local-nav-group');
-            setLocalNavCollapsed(!group?.classList.contains('is-collapsed'));
-        }
-
-        function restoreLocalNav(id) {
-            const savedCollapsed = localStorage.getItem(LOCAL_NAV_COLLAPSED_KEY) === '1';
-            setLocalNavCollapsed(savedCollapsed && !LOCAL_PAGE_IDS.includes(id), { skipRemember:true });
-        }
-
         function setSidebarSettingsCollapsed(collapsed, options = {}) {
             const group = document.getElementById('settings-fold-group');
             const toggle = document.getElementById('settings-fold-toggle');
@@ -1871,7 +1706,7 @@
 
         function restoreSidebarSettings(id) {
             const savedCollapsed = localStorage.getItem(SIDEBAR_SETTINGS_COLLAPSED_KEY) !== '0';
-            setSidebarSettingsCollapsed(savedCollapsed && id !== 'comfyui-settings', { skipRemember:true });
+            setSidebarSettingsCollapsed(savedCollapsed, { skipRemember:true });
         }
 
         function resetStudioRootScroll() {
@@ -1896,15 +1731,7 @@
             syncThemeToFrame(target);
             syncLanguageToFrame(target);
             syncScaleToFrame(target);
-            if(LOCAL_PAGE_IDS.includes(id)) {
-                setLocalNavCollapsed(false, { skipRemember:true });
-            } else {
-                setLocalNavCollapsed(localStorage.getItem(LOCAL_NAV_COLLAPSED_KEY) === '1', { skipRemember:true });
-            }
-            if(id === 'comfyui-settings') {
-                setSidebarSettingsCollapsed(false, { skipRemember:true });
-            }
-            // 切换到画布时通知刷新工作流列表（防止在 comfyui-settings 修改后画布未及时更新）
+            // 切换到画布时通知刷新
             if (id === 'canvas' && target.src) {
                 try { target.contentWindow?.postMessage({ type: 'canvas-focus' }, '*'); } catch(e) {}
             }
@@ -1912,7 +1739,7 @@
         }
 
         function forwardStudioApiChange(data) {
-            if(!data || !['providers-changed','workflows-changed','comfy-instances-changed'].includes(data.type)) return;
+            if(!data || !['providers-changed','workflows-changed'].includes(data.type)) return;
             document.querySelectorAll('iframe').forEach(iframe => {
                 try {
                     if (iframe && iframe.contentWindow) iframe.contentWindow.postMessage(data, '*');
@@ -1933,7 +1760,6 @@
         function restoreActivePage() {
             restoreSidebarPinned();
             const id = PAGE_IDS.includes(localStorage.getItem(ACTIVE_PAGE_KEY)) ? localStorage.getItem(ACTIVE_PAGE_KEY) : DEFAULT_PAGE_ID;
-            restoreLocalNav(id);
             restoreSidebarSettings(id);
             const trigger = document.querySelector(`[onclick*="'${id}'"],[onclick*='"${id}"']`);
             switchUI(trigger, id, { skipRemember:true });
@@ -2272,11 +2098,11 @@
         }
 
         function updateSourceLabel(source = updateSource) {
-            return source === 'modelscope' ? 'ModelScope' : 'GitHub';
+            return 'GitHub';
         }
 
         function setUpdateSource(source) {
-            updateSource = source === 'modelscope' ? 'modelscope' : 'github';
+            updateSource = 'github';
             localStorage.setItem('studio_update_source', updateSource);
             refreshProjectUpdateModalText();
         }
@@ -2295,11 +2121,7 @@
         function bestUpdateSourceFromConnectivity(data) {
             const results = data?.results || [];
             const github = sourceConnectivityStats('github', results);
-            const ms = sourceConnectivityStats('modelscope', results);
-            if(github.ok && ms.ok) return ms.avg < github.avg ? 'modelscope' : 'github';
-            if(ms.ok) return 'modelscope';
-            if(github.ok) return 'github';
-            return updateSource;
+            return github.ok ? 'github' : updateSource;
         }
 
         function updateTargetLabel(name) {
@@ -2307,10 +2129,6 @@
                 'GitHub 更新列表': ['GitHub 更新列表', 'GitHub update API'],
                 'GitHub 版本文件': ['GitHub 版本文件', 'GitHub version file'],
                 'GitHub 主页': ['GitHub 主页', 'GitHub home page'],
-                'ModelScope 更新列表': ['ModelScope 更新列表', 'ModelScope update list'],
-                'ModelScope 版本文件': ['ModelScope 版本文件', 'ModelScope version file'],
-                'ModelScope 空间页面': ['ModelScope 空间页面', 'ModelScope space page'],
-                'ModelScope 主页': ['ModelScope 主页', 'ModelScope home page'],
                 'Google 连通性': ['Google 连通性', 'Google connectivity'],
             };
             const item = labels[name] || [name, name];
@@ -2340,14 +2158,10 @@
         function updateConnectivityTargets() {
             const sources = appInfo.sources || {};
             const github = sources.github || {};
-            const ms = sources.modelscope || {};
             return [
-                { name:'GitHub 更新列表', url:github.tree_url || appInfo.tree_url || 'https://api.github.com/repos/hero8152/Infinite-Canvas/git/trees/main?recursive=1', source:'github', required:true },
-                { name:'GitHub 版本文件', url:github.version_url || appInfo.version_url || 'https://raw.githubusercontent.com/hero8152/Infinite-Canvas/main/VERSION', source:'github', required:true },
+                { name:'GitHub 更新列表', url:github.tree_url || appInfo.tree_url || 'https://api.github.com/repos/iorlchotae/Infinite-Canvas-UDG/git/trees/main?recursive=1', source:'github', required:true },
+                { name:'GitHub 版本文件', url:github.version_url || appInfo.version_url || 'https://raw.githubusercontent.com/iorlchotae/Infinite-Canvas-UDG/main/VERSION', source:'github', required:true },
                 { name:'GitHub 主页', url:'https://github.com/', source:'github' },
-                { name:'ModelScope 版本文件', url:ms.version_url || 'https://www.modelscope.cn/api/v1/studio/Daniel8152/Infinite-Canvas/repo?Revision=master&FilePath=VERSION', source:'modelscope', required:true },
-                { name:'ModelScope 空间页面', url:ms.repo_url || 'https://modelscope.cn/studios/Daniel8152/Infinite-Canvas', source:'modelscope' },
-                { name:'ModelScope 主页', url:'https://modelscope.cn/', source:'modelscope' },
                 { name:'Google 连通性', url:'https://www.google.com/generate_204', source:'reference' },
             ];
         }
@@ -2385,7 +2199,6 @@
             });
             };
             renderInto(document.querySelector('[data-connectivity-source="github"]'), 'github');
-            renderInto(document.querySelector('[data-connectivity-source="modelscope"]'), 'modelscope');
         }
 
         function refreshProjectUpdateModalText() {
@@ -2436,8 +2249,8 @@
                     'warn',
                     updateUiText('建议先测试连通性', 'Connectivity test recommended'),
                     updateUiText(
-                        '测试会同时测速 GitHub 和 ModelScope。你可以根据结果切换下载源。',
-                        'The test checks both GitHub and ModelScope. Choose the faster reachable source before updating.'
+                        '测试会检测 GitHub 各节点连通性，可用于判断当前网络能否正常更新。',
+                        'The test checks GitHub endpoints so you can tell whether updates will work on this network.'
                     )
                 );
             } else if(updateConnectivityResult.backend_missing) {
@@ -2505,7 +2318,7 @@
 
         function computeConnectivitySources(results) {
             const out = {};
-            for(const source of ['github', 'modelscope']) {
+            for(const source of ['github']) {
                 const reqAll = (results || []).filter(it => it.source === source && it.required);
                 out[source] = {
                     ok: reqAll.length > 0 && reqAll.every(it => it.ok),
@@ -2660,7 +2473,7 @@
                 if(!res.ok) throw new Error(data.detail || (isEn ? 'Update failed' : '更新失败'));
                 if(data.update_notes) setProjectUpdateNotes(data.update_notes);
                 const restarting = data.restart_scheduled;
-                const usedLabel = data.source_label || (data.source === 'modelscope' ? 'ModelScope' : 'GitHub');
+                const usedLabel = data.source_label || 'GitHub';
                 const fallbackNote = data.fallback_used
                     ? (isEn
                         ? ` (${sourceName} was unreachable, so it fell back to ${usedLabel})`
@@ -2765,7 +2578,7 @@
                 let best = null;
                 let reachable = false;
                 let serverChecked = false;
-                // 优先走后端检测：服务端用系统代理同时检测 GitHub 和 ModelScope，避免浏览器跨域/被墙
+                // 优先走后端检测：服务端用系统代理检测 GitHub 远端版本，避免浏览器跨域/被墙
                 try {
                     const r = await fetch('/api/check-update', { cache:'no-store' });
                     if(r.ok) {
@@ -2781,7 +2594,6 @@
                     const sources = appInfo.sources || {};
                     const candidates = [
                         {source:'github', url:sources.github?.version_url || appInfo.version_url || ''},
-                        {source:'modelscope', url:sources.modelscope?.version_url || ''},
                     ].filter(item => item.url);
                     for(const item of candidates) {
                         try {
@@ -2793,7 +2605,6 @@
                 }
                 const hasUpdate = !!(current && best?.version && compareVersions(best.version, current) > 0);
                 if(hasUpdate) {
-                    if(best.source === 'modelscope') setUpdateSource('modelscope');
                     setProjectUpdateNotes(best.update_notes || null);
                     showUpdateNotice(current, best.version);
                 }
@@ -2803,7 +2614,7 @@
                     } else if(reachable) {
                         alert(isEn ? `You are on the latest version (${versionLabel(current)}).` : `已是最新版本（${versionLabel(current)}）。`);
                     } else {
-                        alert(isEn ? 'Could not reach GitHub or ModelScope. Check your network/proxy and try again.' : '无法连接 GitHub 或 ModelScope 更新源，请检查网络或代理后重试。');
+                        alert(isEn ? 'Could not reach GitHub. Check your network/proxy and try again.' : '无法连接 GitHub 更新源，请检查网络或代理后重试。');
                     }
                 }
             } catch(e) {

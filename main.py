@@ -163,19 +163,11 @@ class ConnectionManager:
 manager = ConnectionManager()
 GLOBAL_LOOP = None
 APP_VERSION = "2026.06.03"
-GITHUB_REPO_URL = "https://github.com/hero8152/Infinite-Canvas"
-GITHUB_VERSION_URL = "https://raw.githubusercontent.com/hero8152/Infinite-Canvas/main/VERSION"
-GITHUB_TREE_URL = "https://api.github.com/repos/hero8152/Infinite-Canvas/git/trees/main?recursive=1"
-GITHUB_RAW_ROOT = "https://raw.githubusercontent.com/hero8152/Infinite-Canvas/main"
+GITHUB_REPO_URL = "https://github.com/iorlchotae/Infinite-Canvas-UDG"
+GITHUB_VERSION_URL = "https://raw.githubusercontent.com/iorlchotae/Infinite-Canvas-UDG/main/VERSION"
+GITHUB_TREE_URL = "https://api.github.com/repos/iorlchotae/Infinite-Canvas-UDG/git/trees/main?recursive=1"
+GITHUB_RAW_ROOT = "https://raw.githubusercontent.com/iorlchotae/Infinite-Canvas-UDG/main"
 GITHUB_UPDATE_NOTES_URL = GITHUB_RAW_ROOT + "/static/update-notes.json"
-MODELSCOPE_REPO_URL = "https://modelscope.ai/studios/daniel8152/Infinite-Canvas"
-MODELSCOPE_RAW_ROOT = "https://www.modelscope.ai/studios/daniel8152/Infinite-Canvas/raw/main"
-# ModelScope 仓库默认分支为 master；raw 网页路径会返回 HTML，必须用仓库文件 API 才能拿到纯文本
-# 注意：.ai 站命名空间为小写 daniel8152，API 路径大小写敏感（推送/文件 API 用大写会 404/拒绝）
-MODELSCOPE_FILE_API_ROOT = "https://www.modelscope.ai/api/v1/studio/daniel8152/Infinite-Canvas/repo?Revision=master&FilePath="
-MODELSCOPE_VERSION_URL = MODELSCOPE_FILE_API_ROOT + "VERSION"
-MODELSCOPE_UPDATE_NOTES_URL = MODELSCOPE_FILE_API_ROOT + "static/update-notes.json"
-MODELSCOPE_TREE_URL = "https://www.modelscope.ai/api/v1/studio/daniel8152/Infinite-Canvas/repo/files?Revision=master&Recursive=true"
 
 @app.on_event("startup")
 async def startup_event():
@@ -1636,7 +1628,7 @@ def fetch_remote_update_notes(url: str, version: str = "", timeout: float = 5.0)
     try:
         resp = requests.get(
             f"{url}{'&' if '?' in url else '?'}t={int(time.time())}",
-            headers={"User-Agent": "Infinite-Canvas-Updater"},
+            headers={"User-Agent": "Infinite-Canvas-UDG-Updater"},
             timeout=timeout,
             proxies=urllib.request.getproxies() or None,
         )
@@ -1654,29 +1646,17 @@ def fetch_remote_update_notes(url: str, version: str = "", timeout: float = 5.0)
 def fetch_update_notes_with_fallback(preferred_source: str, version: str, timeout: float = 3.0) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     urls = {
         "github": GITHUB_UPDATE_NOTES_URL,
-        "modelscope": MODELSCOPE_UPDATE_NOTES_URL,
     }
     preferred = preferred_source if preferred_source in urls else "github"
-    order = [preferred, "modelscope" if preferred == "github" else "github"]
     notes_by_source: Dict[str, Any] = {}
     best_notes: Dict[str, Any] = {"version": version, "items": []}
-    for source in order:
+    for source in urls:
         notes = fetch_remote_update_notes(urls[source], version, timeout=timeout)
         notes["source"] = source
         notes_by_source[source] = notes
         if notes.get("ok") and (notes.get("items") or []):
             best_notes = notes
             break
-    for source, url in urls.items():
-        if source not in notes_by_source:
-            notes_by_source[source] = {
-                "ok": False,
-                "error": "未尝试：已有更新说明可用" if best_notes.get("items") else "未尝试",
-                "url": url,
-                "source": source,
-                "version": version,
-                "items": [],
-            }
     return best_notes, notes_by_source
 
 def versioned_static_html(html: str) -> str:
@@ -1861,13 +1841,6 @@ def app_info():
                 "tree_url": GITHUB_TREE_URL,
                 "update_notes_url": GITHUB_UPDATE_NOTES_URL,
             },
-            "modelscope": {
-                "label": "ModelScope",
-                "repo_url": MODELSCOPE_REPO_URL,
-                "version_url": MODELSCOPE_VERSION_URL,
-                "tree_url": MODELSCOPE_TREE_URL,
-                "update_notes_url": MODELSCOPE_UPDATE_NOTES_URL,
-            },
         },
         "update_notes": read_local_update_notes(version),
     }
@@ -1886,7 +1859,7 @@ def connectivity_probe(name: str, url: str, timeout: float = 5.0) -> Dict[str, A
     try:
         response = requests.get(
             url,
-            headers={"User-Agent": "Infinite-Canvas-Updater"},
+            headers={"User-Agent": "Infinite-Canvas-UDG-Updater"},
             timeout=timeout,
             stream=True,
             proxies=urllib.request.getproxies() or None,
@@ -1910,9 +1883,6 @@ def update_connectivity_targets() -> List[Tuple[str, str, str, bool]]:
         ("GitHub 更新列表", GITHUB_TREE_URL, "github", True),
         ("GitHub 版本文件", GITHUB_VERSION_URL, "github", True),
         ("GitHub 主页", "https://github.com/", "github", False),
-        ("ModelScope 版本文件", MODELSCOPE_VERSION_URL, "modelscope", True),
-        ("ModelScope 空间页面", MODELSCOPE_REPO_URL, "modelscope", False),
-        ("ModelScope 主页", "https://modelscope.cn/", "modelscope", False),
         ("Google 连通性", "https://www.google.com/generate_204", "reference", False),
     ]
 
@@ -1959,7 +1929,7 @@ def fetch_remote_version(url: str, timeout: float = 5.0) -> Dict[str, Any]:
     try:
         resp = requests.get(
             f"{url}{'&' if '?' in url else '?'}t={int(time.time())}",
-            headers={"User-Agent": "Infinite-Canvas-Updater"},
+            headers={"User-Agent": "Infinite-Canvas-UDG-Updater"},
             timeout=timeout,
             proxies=urllib.request.getproxies() or None,
         )
@@ -1992,9 +1962,8 @@ def version_gt(a: str, b: str) -> bool:
 
 @app.get("/api/check-update")
 def check_update():
-    """服务端检测 GitHub 与 ModelScope 两个源的远端版本（走系统代理，避免浏览器跨域/被墙）。"""
+    """服务端检测 GitHub 源的远端版本（走系统代理，避免浏览器跨域/被墙）。"""
     current = current_app_version()
-    # 并发检测两个源，避免串行 8s+8s 拖慢首屏更新提示
     holder: Dict[str, Dict[str, Any]] = {}
     def _probe(key: str, url: str):
         item = fetch_remote_version(url, timeout=5.0)
@@ -2002,16 +1971,14 @@ def check_update():
         holder[key] = item
     threads = [
         Thread(target=_probe, args=("github", GITHUB_VERSION_URL), daemon=True),
-        Thread(target=_probe, args=("modelscope", MODELSCOPE_VERSION_URL), daemon=True),
     ]
     for t in threads:
         t.start()
     for t in threads:
         t.join(timeout=5.5)
     github = holder.get("github") or {"version": "", "ok": False, "error": "检测超时（超过 5s）", "url": GITHUB_VERSION_URL, "source": "github"}
-    modelscope = holder.get("modelscope") or {"version": "", "ok": False, "error": "检测超时（超过 5s）", "url": MODELSCOPE_VERSION_URL, "source": "modelscope"}
     best: Dict[str, Any] = {}
-    for item in (github, modelscope):
+    for item in (github,):
         if item["ok"] and item["version"]:
             if not best or version_gt(item["version"], best["version"]):
                 best = {"source": item["source"], "version": item["version"]}
@@ -2023,12 +1990,11 @@ def check_update():
     return {
         "current": current,
         "github": github,
-        "modelscope": modelscope,
         "latest": best,
         "update_notes": best.get("update_notes") if best else {},
         "update_notes_sources": notes_by_source,
         "update_available": update_available,
-        "reachable": bool(github["ok"] or modelscope["ok"]),
+        "reachable": bool(github["ok"]),
     }
 
 def update_allowed_file(path: str) -> bool:
@@ -2057,7 +2023,7 @@ def github_get(url: str, headers: Optional[Dict[str, str]] = None, timeout: int 
 def github_json(url: str, use_etag_cache: bool = False):
     headers = {
         "Accept": "application/vnd.github+json",
-        "User-Agent": "Infinite-Canvas-Updater",
+        "User-Agent": "Infinite-Canvas-UDG-Updater",
     }
     cache_key = url
     if use_etag_cache and cache_key == GITHUB_TREE_URL:
@@ -2084,7 +2050,7 @@ def github_json(url: str, use_etag_cache: bool = False):
         raise
 
 def github_bytes(url: str) -> bytes:
-    resp = github_get(url, headers={"User-Agent": "Infinite-Canvas-Updater"}, timeout=60)
+    resp = github_get(url, headers={"User-Agent": "Infinite-Canvas-UDG-Updater"}, timeout=60)
     return resp.content
 
 def download_github_update_files(files: List[str], staging_root: str) -> None:
@@ -2099,49 +2065,6 @@ def download_github_update_files(files: List[str], staging_root: str) -> None:
         os.makedirs(os.path.dirname(stage_path), exist_ok=True)
         with open(stage_path, "wb") as f:
             f.write(data)
-
-def modelscope_update_file_list() -> List[str]:
-    """通过 ModelScope 仓库文件 API 列出所有允许更新的文件（不依赖 git）。"""
-    resp = github_get(MODELSCOPE_TREE_URL, headers={"User-Agent": "Infinite-Canvas-Updater"}, timeout=30)
-    payload = json.loads(resp.content.decode("utf-8", errors="replace"))
-    files_node = ((payload.get("Data") or {}).get("Files")) or []
-    out: List[str] = []
-    for entry in files_node:
-        if not isinstance(entry, dict):
-            continue
-        if entry.get("Type") != "blob":
-            continue
-        path = str(entry.get("Path") or "").replace("\\", "/")
-        if update_allowed_file(path):
-            out.append(path)
-    return sorted(set(out))
-
-def modelscope_file_bytes(rel: str) -> bytes:
-    url = MODELSCOPE_FILE_API_ROOT + urllib.parse.quote(rel, safe="/")
-    resp = github_get(url, headers={"User-Agent": "Infinite-Canvas-Updater"}, timeout=60)
-    return resp.content
-
-def download_modelscope_update_files(staging_root: str) -> List[str]:
-    # 用 HTTP 仓库文件 API 下载（与 GitHub raw 同样思路），不依赖本机安装 Git。
-    # 之前用 git clone 会要求目标机装 Git for Windows，很多用户没装 → 一键更新失败。
-    files = modelscope_update_file_list()
-    if not files:
-        raise RuntimeError("ModelScope 未返回任何文件")
-    if "main.py" not in files or "VERSION" not in files:
-        raise RuntimeError("ModelScope 更新源缺少 main.py 或 VERSION")
-    if not any(f.startswith("static/") for f in files):
-        raise RuntimeError("ModelScope 未返回 static 文件，已取消更新")
-    staging_root_abs = os.path.abspath(staging_root)
-    for rel in files:
-        safe_update_target(rel)
-        data = modelscope_file_bytes(rel)
-        stage_path = os.path.abspath(os.path.join(staging_root_abs, *rel.split("/")))
-        if os.path.commonpath([staging_root_abs, stage_path]) != staging_root_abs:
-            raise ValueError(f"更新暂存路径不安全：{rel}")
-        os.makedirs(os.path.dirname(stage_path), exist_ok=True)
-        with open(stage_path, "wb") as f:
-            f.write(data)
-    return files
 
 def safe_update_target(path: str) -> str:
     rel = str(path or "").replace("\\", "/").lstrip("/")
@@ -2264,42 +2187,13 @@ def github_update_file_list() -> Tuple[List[str], List[str], List[str]]:
         raise RuntimeError("GitHub 未返回 static 文件，已取消更新")
     return root_files, static_files, files
 
-def staged_update_file_list(staging_root: str) -> Tuple[List[str], List[str], List[str]]:
-    root_files = []
-    static_files = []
-    for root_dir, _, names in os.walk(staging_root):
-        for name in names:
-            path = os.path.abspath(os.path.join(root_dir, name))
-            rel = os.path.relpath(path, staging_root).replace("\\", "/")
-            if not update_allowed_file(rel):
-                continue
-            if rel.startswith("static/"):
-                static_files.append(rel)
-            else:
-                root_files.append(rel)
-    if "main.py" not in root_files or "VERSION" not in root_files:
-        raise RuntimeError("更新源缺少 main.py 或 VERSION")
-    if not static_files:
-        raise RuntimeError("更新源未返回 static 文件，已取消更新")
-    root_files = sorted(set(root_files))
-    static_files = sorted(set(static_files))
-    return root_files, static_files, root_files + static_files
-
-UPDATE_SOURCE_LABELS = {"github": "GitHub", "modelscope": "ModelScope"}
+UPDATE_SOURCE_LABELS = {"github": "GitHub"}
 
 def normalize_update_source(value: str) -> str:
-    source = str(value or "github").strip().lower()
-    if source == "ms":
-        return "modelscope"
-    if source not in {"github", "modelscope"}:
-        return "github"
-    return source
+    return "github"
 
 def stage_update_from_source(source: str, staging_root: str) -> Tuple[List[str], List[str], List[str]]:
-    """下载指定源的更新文件到 staging，返回 (root_files, static_files, files)。失败抛异常。"""
-    if source == "modelscope":
-        download_modelscope_update_files(staging_root)
-        return staged_update_file_list(staging_root)
+    """下载 GitHub 源的更新文件到 staging，返回 (root_files, static_files, files)。失败抛异常。"""
     root_files, static_files, files = github_update_file_list()
     download_github_update_files(files, staging_root)
     return root_files, static_files, files
@@ -2457,11 +2351,8 @@ def update_from_github(req: UpdateRequest = UpdateRequest()):
         raise HTTPException(status_code=409, detail="正在更新中，请稍后再试")
     staging_root = ""
     requested_source = normalize_update_source(req.source)
-    # 冗余设计：先用用户选择的源，失败后自动切换到另一个源兜底，全部失败才报错
+    # 单一 GitHub 源：下载失败直接报错，由用户检查网络/代理后重试
     source_order = [requested_source]
-    if req.fallback:
-        other = "modelscope" if requested_source == "github" else "github"
-        source_order.append(other)
     try:
         backup_root = ""
         backup_manifest: Dict[str, Any] = {}
@@ -18846,49 +18737,6 @@ def runninghub_collect_workflow_fields(workflow_json):
             })
     return fields
 
-class ComfyInstancesPayload(BaseModel):
-    instances: List[str] = []
-
-@app.get("/api/comfyui/instances")
-def get_comfyui_instances():
-    return {"instances": COMFYUI_INSTANCES}
-
-@app.put("/api/comfyui/instances")
-def save_comfyui_instances(payload: ComfyInstancesPayload):
-    # 宽容校验：去前后空白、去 http(s):// 前缀、去尾部斜杠；要求形如 host:port
-    cleaned = []
-    for item in payload.instances:
-        s = str(item or "").strip()
-        if not s:
-            continue
-        s = re.sub(r"^https?://", "", s)
-        s = s.rstrip("/")
-        if ":" not in s:
-            raise HTTPException(status_code=400, detail=f"地址缺少端口号：{item}（应为 host:port，例如 127.0.0.1:8188）")
-        host, _, port = s.rpartition(":")
-        if not host or not port.isdigit():
-            raise HTTPException(status_code=400, detail=f"地址不合法：{item}（应为 host:port，例如 127.0.0.1:8188）")
-        if s in cleaned:
-            continue
-        cleaned.append(s)
-    if not cleaned:
-        raise HTTPException(status_code=400, detail="至少保留一个 ComfyUI 后端地址")
-    # 写入 env 文件
-    try:
-        update_env_values({"COMFYUI_INSTANCES": ",".join(cleaned)})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"写入 env 失败：{e}")
-    # 更新进程中的全局变量
-    global COMFYUI_INSTANCES, COMFYUI_ADDRESS, BACKEND_LOCAL_LOAD
-    COMFYUI_INSTANCES = cleaned
-    COMFYUI_ADDRESS = cleaned[0]
-    new_load = {addr: 0 for addr in cleaned}
-    for addr, n in (BACKEND_LOCAL_LOAD or {}).items():
-        if addr in new_load:
-            new_load[addr] = n
-    BACKEND_LOCAL_LOAD = new_load
-    return {"instances": COMFYUI_INSTANCES}
-
 @app.get("/api/workflows")
 def list_workflows():
     if not os.path.isdir(WORKFLOW_DIR):
@@ -19030,9 +18878,59 @@ def run_workflow(name: str, payload: WorkflowRunRequest):
     return generate(req)
 
 if __name__ == "__main__":
+    import os
+    import socket
+    import threading
+    import time
     import uvicorn
+
+    # 端口选择：优先 CANVAS_PORT 环境变量（start.bat 会探测后传入），
+    # 未指定或不可用时从 3000 起自动找第一个可用端口，
+    # 避免新电脑上 3000 被占用直接崩溃。
+    # 注意：探测用裸 bind，不能加 SO_REUSEADDR——Windows 上该选项会让两个
+    # socket 共享同一端口，导致"已占用"被误判为"空闲"，而 uvicorn 仍绑定失败。
+    def _port_free(port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("0.0.0.0", port))
+                return True
+            except OSError:
+                return False
+
+    def _pick_port(start: int = 3000, tries: int = 20) -> int:
+        for port in range(start, start + tries):
+            if _port_free(port):
+                return port
+        return start
+
+    try:
+        port = int(os.environ.get("CANVAS_PORT", "0"))
+    except ValueError:
+        port = 0
+    if port <= 0 or not _port_free(port):
+        port = _pick_port()
+
+    # 服务就绪后自动打开浏览器（等端口可连接再开，替代脚本里脆弱的延时方案）
+    def _open_browser_when_ready():
+        import webbrowser
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=1):
+                    break
+            except OSError:
+                time.sleep(0.2)
+        time.sleep(0.5)
+        try:
+            webbrowser.open(f"http://127.0.0.1:{port}/")
+        except Exception:
+            pass
+
+    threading.Thread(target=_open_browser_when_ready, daemon=True).start()
+
     # 关闭服务端协议级 WebSocket ping：部分客户端（如 PS UXP 面板）不会自动回 pong，
     # 默认 20s ping/20s 超时会把这些连接每隔一会儿就踢掉造成"频繁断连"。
     # 客户端有自己的应用层心跳 + 断线重连兜底，这里禁用协议 ping 更稳。
-    uvicorn.run(app, host="0.0.0.0", port=3000,
+    print(f"[Infinite Canvas UDG] Serving on http://127.0.0.1:{port}/")
+    uvicorn.run(app, host="0.0.0.0", port=port,
                 ws_ping_interval=None, ws_ping_timeout=None)

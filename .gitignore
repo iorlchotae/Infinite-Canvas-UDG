@@ -1,0 +1,14 @@
+# Secrets / credentials (never commit)
+API/.env
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Runtime / user data (regenerated locally, not source)
+history.json
+data/canvases/
+data/media_previews/
+data/projects.json
+data/prompt_libraries.json
+data/api_providers.json
