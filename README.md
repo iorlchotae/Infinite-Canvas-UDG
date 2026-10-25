@@ -70,6 +70,17 @@ python3 main.py
 
 UDG 版的改动包括：移除本地功能与 GPT 对话板块、界面署名替换为联创四院（UDG）、更新源切换至本仓库等。
 
+### 上游项目（参考来源）
+
+本 README 的**功能描述与截图说明均参考上游原项目**撰写，仅作来源标注与能力对照；UDG 版已按上文「功能特性 / 快速开始」实际裁剪，请以本仓库内容为准。
+
+- 原项目仓库：<https://github.com/hero8152/Infinite-Canvas>
+- 原作者：**wuli大雄**（B 站主页：<https://space.bilibili.com/78652351>）
+- 配套 Chrome 采集插件：<https://chromewebstore.google.com/detail/infinite-canvas-%E5%9B%BE%E5%83%8F%E8%A7%86%E9%A2%91%E6%96%87%E5%AD%97%E6%8A%93%E5%8F%96%E5%B7%A5/ajfhnbklbmpfaaookhfakohabnpmlcic>
+- 视频教程：<https://youtu.be/1y9ShTvgC_w>
+
+> 注意：上游项目已于 **2026/08/28** 宣布停更，全新版本请前往 <http://www.DX-OS.com> 下载，与本项目（联创四院 UDG 版）无隶属关系。
+
 ## 目录结构
 
 ```
