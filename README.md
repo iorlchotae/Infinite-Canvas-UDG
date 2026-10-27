@@ -3,8 +3,33 @@
 **联创四院（UDG）** 基于开源项目 [Infinite-Canvas](https://github.com/hero8152/Infinite-Canvas) 二次开发的画布软件。
 
 - 项目主页：<https://github.com/iorlchotae/Infinite-Canvas-UDG>
+- **下载安装**：见下方 [⬇️ 下载与安装](#️-下载与安装)（免安装绿色包，解压即用）
 
 ---
+
+## ⬇️ 下载与安装
+
+**新用户请直接下载打包好的绿色包**，无需克隆仓库、无需安装 Python：
+
+1. 打开 [Releases 页面](https://github.com/iorlchotae/Infinite-Canvas-UDG/releases/latest)，下载最新的 `Infinite-Canvas-UDG-<版本>-win.zip`（约 50 MB）
+2. **解压到任意目录**（建议路径不要带中文空格以外的特殊字符，例如 `D:\AI\Infinite-Canvas-UDG`）
+3. **双击 `start.bat`**，等待控制台自动打开浏览器（默认 <http://127.0.0.1:3000/>）
+4. 首次使用进入 **「API 设置」**，填入可用的 API Key 保存后即可生图
+
+> **绿色包特点**：内置便携 Python 与全部离线依赖 —— 免安装、断网可启动、端口被占用自动顺延；解压后请勿删除 `python/` 与 `packages/` 目录。
+
+<details>
+<summary><b>没有 Release 包时的替代方式（克隆源码运行）</b></summary>
+
+```bash
+git clone https://github.com/iorlchotae/Infinite-Canvas-UDG.git
+cd Infinite-Canvas-UDG
+start.bat          # Windows（自带 python/ 便携运行时，同样免安装）
+python3 main.py    # macOS / Linux（需先 pip3 install -r requirements.txt）
+```
+
+</details>
+
 
 ## 项目简介
 
@@ -35,9 +60,11 @@
 
 ## 快速开始
 
+> 提示：普通用户走上方 [⬇️ 下载与安装](#️-下载与安装) 的 Release 绿色包最快；以下为源码/拷贝方式的详细说明。
+
 ### 部署到一台新电脑（Windows）
 
-整个文件夹（含 `python/` 便携运行时与 `packages/` 离线依赖包）**整体拷贝**到新电脑任意目录，双击 `start.bat` 即可使用：
+整个文件夹（含 `python/` 便携运行时与 `packages/` 离线依赖包）**整体拷贝**到新电脑任意目录（或直接解压 Release 的 zip），双击 `start.bat` 即可使用：
 
 - **无需安装 Python**：优先使用项目自带的 `python/` 便携运行时
 - **无需联网**：依赖已随项目打包；即使依赖丢失，`start.bat` 会自动调用 `install-deps.bat` 从 `packages/` 离线修复
@@ -66,6 +93,17 @@ python3 main.py
 
 - `tools/chrome-local-asset-importer`：Chrome 插件，扫描网页图片批量导入素材库
 - `tools/photoshop-asset-connector`：Photoshop UXP 面板插件，PS 与素材库双向打通
+- `tools/make_release_zip.py`：发布打包脚本，生成给用户下载的免安装 zip（见下）
+
+### 发布打包（维护者）
+
+```bash
+python tools/make_release_zip.py
+# 输出 dist/Infinite-Canvas-UDG-<版本>-win.zip（约 50 MB，只收录 git 跟踪文件，
+# 自动排除 .git、API/.env 密钥、素材与画布运行数据）
+```
+
+把 zip 上传到 [Releases](https://github.com/iorlchotae/Infinite-Canvas-UDG/releases)（`gh release create <版本号> dist/*.zip`）即可供用户在 README 顶部入口下载；上传前用 `gh release view` 或网页检查附件名称与 README 中的说明一致。
 
 ## 开源与致谢
 

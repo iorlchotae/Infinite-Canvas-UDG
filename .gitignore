@@ -20,3 +20,6 @@ START.exe
 # PyInstaller build scratch (START.exe 打包中间产物)
 .build_pyi/
 *.spec
+
+# Release 打包产物 (tools/make_release_zip.py 输出)
+dist/
